@@ -54,3 +54,25 @@ class ItemPedido(Base):
     quantidade: Mapped[int] = mapped_column(Integer, CheckConstraint("quantidade > 0"))
     preco_unitario: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     lote_id: Mapped[int] = mapped_column(ForeignKey("lotes.id"))
+
+from sqlalchemy.dialects.postgresql import JSONB
+
+class Pagamento(Base):
+    __tablename__ = "pagamentos"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pedido_id: Mapped[int] = mapped_column(ForeignKey("pedidos.id"), unique=True)
+    metodo: Mapped[str] = mapped_column(String(20))            # pix ou cartao
+    valor: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    status: Mapped[str] = mapped_column(String(20), default="pendente")  # pendente, aprovado, recusado, estornado
+    gateway_id: Mapped[str] = mapped_column(String(60), unique=True)     # id da transação no gateway
+    pix_copia_cola: Mapped[str | None] = mapped_column(String(300))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+class EventoPagamento(Base):
+    __tablename__ = "eventos_pagamento"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pagamento_id: Mapped[int] = mapped_column(ForeignKey("pagamentos.id"))
+    tipo: Mapped[str] = mapped_column(String(40))              # ex.: payment.approved
+    payload: Mapped[dict] = mapped_column(JSONB)               # o aviso completo, como chegou
+    recebido_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
