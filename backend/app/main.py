@@ -198,3 +198,65 @@ def concluir(numero: str, itens: list[ItemSep], u=Depends(exige("separador"))):
                       {"st": st, "sub": it.substituto_sku if st == "substituido" else None, "id": it.id})
         c.execute(text("UPDATE pedidos SET status='pronto', separacao_fim=now() WHERE id=:id"), {"id": p.id})
     return {"numero": numero, "status": "pronto", "faltas": faltas}
+
+def resumo_entrega(c, numero):
+    r = c.execute(text("""SELECT numero, status, endereco, total,
+            EXTRACT(EPOCH FROM saiu_em - criado_em)::int AS loja_seg,
+            EXTRACT(EPOCH FROM entregue_em - saiu_em)::int AS rota_seg,
+            EXTRACT(EPOCH FROM entregue_em - criado_em)::int AS total_seg
+        FROM pedidos WHERE numero = :n"""), {"n": numero}).first()
+    return dict(r._mapping)
+
+@app.get("/entrega/minha")
+def minha_entrega(u=Depends(exige("entregador"))):
+    with engine.connect() as c:
+        n = c.execute(text("SELECT numero FROM pedidos WHERE entregador=:m AND status IN ('atribuido','a_caminho')"), {"m": u["sub"]}).scalar()
+        prontos = c.execute(text("SELECT COUNT(*) FROM pedidos WHERE status='pronto'")).scalar()
+        return {"pedido": resumo_entrega(c, n) if n else None, "prontos_na_loja": prontos}
+
+@app.post("/entrega/pegar")
+def pegar_entrega(u=Depends(exige("entregador"))):
+    with engine.begin() as c:
+        if c.execute(text("SELECT 1 FROM pedidos WHERE entregador=:m AND status IN ('atribuido','a_caminho')"), {"m": u["sub"]}).first():
+            raise HTTPException(409, "Você já tem uma entrega em andamento")
+        p = c.execute(text("SELECT id, numero FROM pedidos WHERE status='pronto' ORDER BY separacao_fim FOR UPDATE SKIP LOCKED LIMIT 1")).first()
+        if not p: raise HTTPException(404, "Nenhum pedido pronto na loja")
+        c.execute(text("UPDATE pedidos SET status='atribuido', entregador=:m WHERE id=:id"), {"m": u["sub"], "id": p.id})
+        c.execute(text("UPDATE funcionarios SET disponivel=false WHERE matricula=:m"), {"m": u["sub"]})
+        return resumo_entrega(c, p.numero)
+
+@app.post("/entrega/{numero}/retirei")
+def retirei(numero: str, u=Depends(exige("entregador"))):
+    with engine.begin() as c:
+        ok = c.execute(text("UPDATE pedidos SET status='a_caminho', saiu_em=now() WHERE numero=:n AND entregador=:m AND status='atribuido' RETURNING id"), {"n": numero, "m": u["sub"]}).first()
+        if not ok: raise HTTPException(409, "Pedido não está atribuído a você")
+        return resumo_entrega(c, numero)
+
+@app.post("/entrega/{numero}/entreguei")
+def entreguei(numero: str, u=Depends(exige("entregador"))):
+    with engine.begin() as c:
+        ok = c.execute(text("UPDATE pedidos SET status='entregue', entregue_em=now() WHERE numero=:n AND entregador=:m AND status='a_caminho' RETURNING id"), {"n": numero, "m": u["sub"]}).first()
+        if not ok: raise HTTPException(409, "Pedido não está a caminho com você")
+        c.execute(text("UPDATE funcionarios SET disponivel=true WHERE matricula=:m"), {"m": u["sub"]})
+        return resumo_entrega(c, numero)
+
+import os, base64
+
+def traccar(path: str):
+    url = os.environ["TRACCAR_URL"] + path
+    cred = base64.b64encode(f'{os.environ["TRACCAR_USER"]}:{os.environ["TRACCAR_PASS"]}'.encode()).decode()
+    req = urllib.request.Request(url, headers={"Authorization": f"Basic {cred}", "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read())
+
+@app.get("/entrega/{numero}/posicao")
+def posicao(numero: str):
+    with engine.connect() as c:
+        f = c.execute(text("""SELECT f.nome, f.device_id, p.status FROM pedidos p JOIN funcionarios f ON f.matricula = p.entregador
+                              WHERE p.numero = :n"""), {"n": numero}).first()
+    if not f or not f.device_id: raise HTTPException(404, "Pedido sem entregador rastreável")
+    dev = next((d for d in traccar("/api/devices") if d["uniqueId"] == f.device_id), None)
+    if not dev or not dev.get("positionId"): raise HTTPException(404, "Sem posição no Traccar")
+    pos = traccar(f"/api/positions?id={dev['positionId']}")[0]
+    return {"entregador": f.nome, "status_pedido": f.status, "lat": pos["latitude"], "lon": pos["longitude"],
+            "velocidade_kmh": round(pos["speed"] * 1.852, 1), "atualizado": pos["fixTime"]}

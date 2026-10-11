@@ -48,6 +48,10 @@ class Pedido(Base):
     separador: Mapped[str | None] = mapped_column(ForeignKey("funcionarios.matricula", use_alter=True))
     separacao_inicio: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     separacao_fim: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    entregador: Mapped[str | None] = mapped_column(ForeignKey("funcionarios.matricula", use_alter=True))
+    saiu_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    entregue_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    endereco: Mapped[str | None] = mapped_column(String(200))
 
 class ItemPedido(Base):
     __tablename__ = "itens_pedido"
@@ -89,3 +93,5 @@ class Funcionario(Base):
     funcao: Mapped[str] = mapped_column(String(20))       # separador, entregador ou gerente
     pin_hash: Mapped[str] = mapped_column(String(100))    # PIN criptografado com bcrypt
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    disponivel: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    device_id: Mapped[str | None] = mapped_column(String(40))  # identificador no Traccar
