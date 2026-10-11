@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from sqlalchemy import text
 from app.db import engine
 
@@ -117,3 +117,84 @@ def ver_pedido(numero: str):
                               FROM pedidos p LEFT JOIN pagamentos pg ON pg.pedido_id = p.id WHERE p.numero = :n"""), {"n": numero}).first()
     if not r: raise HTTPException(404, "Pedido não encontrado")
     return dict(r._mapping)
+
+from app.auth import confere_pin, gera_token
+
+class LoginIn(BaseModel):
+    matricula: str
+    pin: str
+
+@app.post("/auth/login")
+def login(d: LoginIn):
+    with engine.connect() as c:
+        f = c.execute(text("SELECT matricula, nome, funcao, pin_hash FROM funcionarios WHERE matricula = :m AND ativo"), {"m": d.matricula}).first()
+    if not f or not confere_pin(d.pin, f.pin_hash):
+        raise HTTPException(401, "Matrícula ou PIN inválidos")
+    return {"token": gera_token(f.matricula, f.nome, f.funcao), "nome": f.nome, "funcao": f.funcao}
+
+from app.auth import exige
+
+@app.get("/separacao/fila")
+def fila(u=Depends(exige("separador"))):
+    with engine.connect() as c:
+        r = c.execute(text("""SELECT p.numero, p.total, COUNT(i.id) AS itens,
+                                     EXTRACT(EPOCH FROM now() - p.criado_em)::int AS espera_seg
+                              FROM pedidos p JOIN itens_pedido i ON i.pedido_id = p.id
+                              WHERE p.status = 'pago' GROUP BY p.id ORDER BY p.criado_em"""))
+        return [dict(x._mapping) for x in r]
+
+@app.post("/separacao/pegar")
+def pegar(u=Depends(exige("separador"))):
+    with engine.begin() as c:
+        atual = c.execute(text("SELECT numero FROM pedidos WHERE status='em_separacao' AND separador=:m"), {"m": u["sub"]}).scalar()
+        if atual: return detalhe(c, atual)  # já tem pedido em mãos
+        p = c.execute(text("""SELECT id, numero FROM pedidos WHERE status='pago'
+                              ORDER BY criado_em FOR UPDATE SKIP LOCKED LIMIT 1""")).first()
+        if not p: raise HTTPException(404, "Fila vazia")
+        c.execute(text("UPDATE pedidos SET status='em_separacao', separador=:m, separacao_inicio=now() WHERE id=:id"), {"m": u["sub"], "id": p.id})
+        return detalhe(c, p.numero)
+
+def detalhe(c, numero):
+    itens = c.execute(text("""SELECT i.id, i.sku, pr.nome, pr.categoria, pr.corredor, pr.imagem_url, i.quantidade, l.id AS lote, l.validade
+                              FROM itens_pedido i JOIN pedidos p ON p.id=i.pedido_id JOIN produtos pr ON pr.sku=i.sku JOIN lotes l ON l.id=i.lote_id
+                              WHERE p.numero=:n ORDER BY pr.corredor, pr.nome"""), {"n": numero})
+    return {"numero": numero, "itens": [dict(x._mapping) for x in itens]}
+
+@app.get("/separacao/substitutos/{sku}")
+def substitutos(sku: str, u=Depends(exige("separador"))):
+    with engine.connect() as c:
+        r = c.execute(text("""SELECT p.sku, p.nome, p.imagem_url, SUM(l.quantidade-l.reservado) AS estoque
+                              FROM produtos p JOIN lotes l ON l.sku=p.sku
+                              WHERE p.categoria=(SELECT categoria FROM produtos WHERE sku=:s) AND p.sku<>:s
+                              GROUP BY p.sku HAVING SUM(l.quantidade-l.reservado)>0 ORDER BY p.nome"""), {"s": sku})
+        return [dict(x._mapping) for x in r]
+
+class ItemSep(BaseModel):
+    id: int
+    status: str  # separado, faltando, substituido
+    substituto_sku: str | None = None
+
+@app.post("/separacao/{numero}/concluir")
+def concluir(numero: str, itens: list[ItemSep], u=Depends(exige("separador"))):
+    with engine.begin() as c:
+        p = c.execute(text("SELECT id FROM pedidos WHERE numero=:n AND status='em_separacao' AND separador=:m FOR UPDATE"), {"n": numero, "m": u["sub"]}).first()
+        if not p: raise HTTPException(409, "Pedido não está com você")
+        faltas = 0
+        for it in itens:
+            orig = c.execute(text("SELECT lote_id, quantidade FROM itens_pedido WHERE id=:id AND pedido_id=:p"), {"id": it.id, "p": p.id}).first()
+            if not orig: continue
+            st = it.status
+            if st == "substituido":
+                lote = c.execute(text("""SELECT id FROM lotes WHERE sku=:s AND quantidade-reservado>=:q
+                                         ORDER BY validade NULLS LAST FOR UPDATE LIMIT 1"""), {"s": it.substituto_sku, "q": orig.quantidade}).first()
+                if lote:
+                    c.execute(text("UPDATE lotes SET reservado=reservado+:q WHERE id=:id"), {"q": orig.quantidade, "id": lote.id})
+                else:
+                    st = "faltando"  # substituto sem saldo vira falta
+            if st in ("faltando", "substituido"):
+                c.execute(text("UPDATE lotes SET reservado=reservado-:q WHERE id=:id"), {"q": orig.quantidade, "id": orig.lote_id})
+            if st == "faltando": faltas += 1
+            c.execute(text("UPDATE itens_pedido SET status=:st, substituto_sku=:sub WHERE id=:id"),
+                      {"st": st, "sub": it.substituto_sku if st == "substituido" else None, "id": it.id})
+        c.execute(text("UPDATE pedidos SET status='pronto', separacao_fim=now() WHERE id=:id"), {"id": p.id})
+    return {"numero": numero, "status": "pronto", "faltas": faltas}

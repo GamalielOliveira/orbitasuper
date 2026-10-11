@@ -45,6 +45,9 @@ class Pedido(Base):
     status: Mapped[str] = mapped_column(String(30), default="aguardando_pagamento")
     total: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    separador: Mapped[str | None] = mapped_column(ForeignKey("funcionarios.matricula", use_alter=True))
+    separacao_inicio: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    separacao_fim: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 class ItemPedido(Base):
     __tablename__ = "itens_pedido"
@@ -54,6 +57,8 @@ class ItemPedido(Base):
     quantidade: Mapped[int] = mapped_column(Integer, CheckConstraint("quantidade > 0"))
     preco_unitario: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     lote_id: Mapped[int] = mapped_column(ForeignKey("lotes.id"))
+    status: Mapped[str] = mapped_column(String(20), default="pendente", server_default="pendente")  # pendente, separado, faltando, substituido
+    substituto_sku: Mapped[str | None] = mapped_column(ForeignKey("produtos.sku"))
 
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -76,3 +81,11 @@ class EventoPagamento(Base):
     tipo: Mapped[str] = mapped_column(String(40))              # ex.: payment.approved
     payload: Mapped[dict] = mapped_column(JSONB)               # o aviso completo, como chegou
     recebido_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+class Funcionario(Base):
+    __tablename__ = "funcionarios"
+    matricula: Mapped[str] = mapped_column(String(10), primary_key=True)
+    nome: Mapped[str] = mapped_column(String(100))
+    funcao: Mapped[str] = mapped_column(String(20))       # separador, entregador ou gerente
+    pin_hash: Mapped[str] = mapped_column(String(100))    # PIN criptografado com bcrypt
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
