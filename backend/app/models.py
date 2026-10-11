@@ -27,3 +27,25 @@ class Lote(Base):
     validade: Mapped[date | None] = mapped_column(Date)
     quantidade: Mapped[int] = mapped_column(Integer, CheckConstraint("quantidade >= 0"))
     reservado: Mapped[int] = mapped_column(Integer, CheckConstraint("reservado >= 0"), default=0)
+
+from datetime import datetime
+from sqlalchemy import DateTime, Sequence, func
+
+class Pedido(Base):
+    __tablename__ = "pedidos"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    numero: Mapped[str] = mapped_column(String(20), unique=True)
+    loja_id: Mapped[int] = mapped_column(ForeignKey("lojas.id"))
+    cliente: Mapped[str] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(30), default="aguardando_pagamento")
+    total: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+class ItemPedido(Base):
+    __tablename__ = "itens_pedido"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pedido_id: Mapped[int] = mapped_column(ForeignKey("pedidos.id"))
+    sku: Mapped[str] = mapped_column(ForeignKey("produtos.sku"))
+    quantidade: Mapped[int] = mapped_column(Integer, CheckConstraint("quantidade > 0"))
+    preco_unitario: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    lote_id: Mapped[int] = mapped_column(ForeignKey("lotes.id"))
