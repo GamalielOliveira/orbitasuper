@@ -15,6 +15,8 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
   const [cat, setCat] = useState<string>("Todos");
   const [busca, setBusca] = useState("");
   const [msg, setMsg] = useState("");
+  const [checkout, setCheckout] = useState<null | { numero: string; total: number; etapa: "escolha" | "aguardando" | "aprovado" | "recusado"; pix?: string }>(null);
+  const [cartao, setCartao] = useState("");
 
   const add = (p: Produto) => setCarrinho(c => ({ ...c, [p.sku]: Math.min((c[p.sku] || 0) + 1, p.estoque) }));
   const rem = (sku: string) => setCarrinho(c => { const n = { ...c }; n[sku] > 1 ? n[sku]-- : delete n[sku]; return n; });
@@ -26,9 +28,24 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
     const r = await fetch("http://localhost:8000/pedidos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cliente: "Gamaliel", itens }) });
     const d = await r.json();
     if (!r.ok) { setMsg(`❌ ${d.detail}`); return; }
-    setMsg(`✅ Pedido ${d.numero} criado! Total ${brl(Number(d.total))}. Aguardando pagamento.`);
     setCarrinho({});
-    setProdutos(await (await fetch("http://localhost:8000/produtos", { cache: "no-store" })).json());
+    setCheckout({ numero: d.numero, total: Number(d.total), etapa: "escolha" });
+  }
+
+  async function pagar(metodo: "pix" | "cartao") {
+    if (!checkout) return;
+    const r = await fetch(`http://localhost:8000/pedidos/${checkout.numero}/pagamento`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ metodo, cartao_final: metodo === "cartao" ? cartao.slice(-4) : null }) });
+    const d = await r.json();
+    setCheckout({ ...checkout, etapa: "aguardando", pix: d.pix_copia_cola });
+    const timer = setInterval(async () => {
+      const st = await (await fetch(`http://localhost:8000/pedidos/${checkout.numero}`)).json();
+      if (st.pagamento === "aprovado" || st.pagamento === "recusado") {
+        clearInterval(timer);
+        setCheckout(c => c && { ...c, etapa: st.pagamento });
+        setProdutos(await (await fetch("http://localhost:8000/produtos", { cache: "no-store" })).json());
+      }
+    }, 2000);
   }
 
   const categorias = [...new Set(produtos.map(p => p.categoria))];
@@ -139,6 +156,43 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
             className="mt-3 w-full rounded-xl bg-blue-600 py-3 font-semibold text-white transition active:scale-95 disabled:bg-gray-300">Continuar para pagamento</button>
         </div>
       </aside>
+      {checkout && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-[440px] rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-blue-900">Pagamento · {checkout.numero}</h2>
+              {checkout.etapa !== "aguardando" && <button onClick={() => setCheckout(null)} className="text-xl text-blue-600">✕</button>}
+            </div>
+            <p className="mb-4 text-2xl font-bold">{brl(checkout.total)}</p>
+
+            {checkout.etapa === "escolha" && (<>
+              <button onClick={() => pagar("pix")} className="mb-3 w-full rounded-xl border-2 border-blue-600 py-3 font-semibold text-blue-700 transition active:scale-95 hover:bg-blue-50">⚡ Pagar com Pix</button>
+              <div className="rounded-xl border p-3">
+                <input value={cartao} onChange={e => setCartao(e.target.value.replace(/\D/g, "").slice(0, 16))} placeholder="Número do cartão de teste"
+                  className="mb-2 w-full rounded-lg bg-gray-100 px-3 py-2 text-sm outline-none" />
+                <p className="mb-2 text-[11px] text-gray-500">Teste: qualquer número aprova; terminado em 0000 é recusado.</p>
+                <button onClick={() => pagar("cartao")} disabled={cartao.length < 4} className="w-full rounded-xl bg-blue-600 py-3 font-semibold text-white transition active:scale-95 disabled:bg-gray-300">💳 Pagar com cartão</button>
+              </div>
+            </>)}
+
+            {checkout.etapa === "aguardando" && (
+              <div className="text-center">
+                {checkout.pix && (<>
+                  <div className="mx-auto mb-3 grid h-40 w-40 grid-cols-8 gap-0.5 rounded-lg bg-white p-2 ring-1 ring-gray-200">
+                    {Array.from({ length: 64 }).map((_, i) => <div key={i} className={(i * 7 + checkout.numero.length * 3) % 3 ? "bg-black" : "bg-white"} />)}
+                  </div>
+                  <p className="mb-1 text-xs text-gray-500">Pix copia e cola (simulado)</p>
+                  <p className="mb-3 break-all rounded bg-gray-100 p-2 text-[10px]">{checkout.pix}</p>
+                </>)}
+                <p className="animate-pulse font-semibold text-blue-700">⏳ Aguardando confirmação do banco…</p>
+              </div>
+            )}
+
+            {checkout.etapa === "aprovado" && <p className="rounded-xl bg-green-50 p-4 text-center font-semibold text-green-700">✅ Pagamento aprovado! Seu pedido foi para a separação.</p>}
+            {checkout.etapa === "recusado" && <p className="rounded-xl bg-red-50 p-4 text-center font-semibold text-red-700">❌ Pagamento recusado. Os itens voltaram para o estoque.</p>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
