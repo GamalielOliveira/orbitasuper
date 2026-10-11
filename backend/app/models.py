@@ -18,6 +18,11 @@ class Produto(Base):
     corredor: Mapped[int] = mapped_column(SmallInteger)
     preco: Mapped[Decimal] = mapped_column(Numeric(10, 2), CheckConstraint("preco >= 0"))
     perecivel: Mapped[bool] = mapped_column(Boolean, default=False)
+    subcategoria: Mapped[str | None] = mapped_column(String(80))
+    conservacao: Mapped[str | None] = mapped_column(String(20))  # Congelado, Resfriado ou Ambiente
+    peso: Mapped[str | None] = mapped_column(String(20))
+    imagem_url: Mapped[str | None] = mapped_column(String(300))
+    preco_original: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # preço antes do desconto
 
 class Lote(Base):
     __tablename__ = "lotes"

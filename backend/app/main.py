@@ -13,7 +13,7 @@ def health():
 @app.get("/produtos")
 def listar_produtos():
     sql = text("""
-        SELECT p.sku, p.nome, p.categoria, p.preco,
+        SELECT p.sku, p.nome, p.categoria, p.preco, p.subcategoria, p.conservacao, p.peso, p.imagem_url, p.preco_original,
                COALESCE(SUM(l.quantidade - l.reservado), 0) AS estoque,
                MIN(l.validade) AS proxima_validade
         FROM produtos p LEFT JOIN lotes l ON l.sku = p.sku
