@@ -1,5 +1,7 @@
 "use client";
 import { useState } from "react";
+import Foto from "./Foto";
+import Home from "./Home";
 
 type Produto = { sku: string; nome: string; categoria: string; subcategoria: string | null; preco: string; preco_original: string | null;
   estoque: number; proxima_validade: string | null; conservacao: string | null; peso: string | null; imagem_url: string | null };
@@ -68,7 +70,7 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
+    <div className="min-h-screen w-full overflow-x-hidden bg-white text-gray-900">
       <header className="sticky top-0 z-20 flex items-center gap-4 border-b bg-white px-6 py-3">
         <span className="text-2xl font-extrabold text-blue-600">daki</span>
         <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔍 Busque por um produto aqui"
@@ -80,9 +82,11 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
         </button>
       </header>
 
-      <div className="flex">
-        <nav className="sticky top-14 h-[calc(100vh-56px)] w-60 shrink-0 overflow-y-auto border-r bg-white p-4">
-          <h2 className="mb-3 text-lg font-bold text-blue-900">Lista de categorias</h2>
+      {cat === "Todos" && !busca && <Home produtos={produtos} categorias={categorias} abrir={setCat} acao={(p) => <Contador p={p} />} />}
+      <div className={cat === "Todos" && !busca ? "hidden" : "flex"}>
+        <nav className={`${cat === "Todos" && !busca ? "hidden" : ""} sticky top-14 h-[calc(100vh-56px)] w-64 shrink-0 overflow-y-auto border-r bg-white px-5 pb-4 pt-8`}>
+          {cat !== "Todos" && <button onClick={() => setCat("Todos")} className="mb-6 flex items-center gap-2 text-sm font-semibold text-blue-600 hover:underline">‹ Voltar ao Início</button>}
+          <h2 className="mb-4 text-2xl font-bold text-blue-900">Lista de categorias</h2>
           {["Todos", VENCER, ...categorias].map(c => (
             <button key={c} onClick={() => setCat(c)}
               className={`mb-1 block w-full rounded-lg px-3 py-2 text-left text-sm transition ${cat === c ? "bg-blue-100 font-semibold text-blue-700" : "hover:bg-gray-100"}`}>{c}</button>
@@ -97,7 +101,7 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
           })}
         </nav>
 
-        <main className="flex-1 p-6">
+        <main className="min-w-0 flex-1 p-6">
           <h1 className="mb-4 border-b pb-3 text-2xl font-bold text-blue-900">{cat}</h1>
           {visiveis.length === 0 && <p className="text-gray-500">Nenhum produto encontrado.</p>}
           {grupos.map(g => (
@@ -109,7 +113,7 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
                   return (
                     <div key={p.sku} className="relative flex flex-col rounded-xl border border-gray-200 bg-white p-3 shadow-sm transition hover:shadow-md">
                       {desc > 0 && <span className="absolute right-2 top-2 rounded-full bg-yellow-400 px-2 text-xs font-bold">-{desc}%</span>}
-                      <div className="flex h-24 items-center justify-center rounded-lg bg-gray-50 text-5xl">{p.imagem_url || "📦"}</div>
+                      <div className="flex h-24 items-center justify-center rounded-lg bg-gray-50 text-5xl"><Foto src={p.imagem_url} className="h-full w-full p-1" /></div>
                       <p className="mt-2 line-clamp-2 text-sm font-medium">{p.nome}</p>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {p.conservacao && p.conservacao !== "Ambiente" && <span className="rounded-full bg-blue-50 px-2 text-[10px] text-blue-700">❄ {p.conservacao}</span>}
@@ -143,7 +147,7 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
             const p = produtos.find(x => x.sku === sku)!;
             return (
               <div key={sku} className="mb-3 flex items-center gap-3 rounded-xl border border-gray-200 p-3">
-                <span className="text-3xl">{p.imagem_url}</span>
+                <span className="flex h-12 w-12 items-center justify-center text-3xl"><Foto src={p.imagem_url} className="h-12 w-12" /></span>
                 <div className="flex-1">
                   <p className="text-sm font-medium">{p.nome}</p>
                   <p className="text-xs text-gray-500">{p.peso}</p>

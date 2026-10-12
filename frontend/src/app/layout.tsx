@@ -12,8 +12,8 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="pt-BR">
-      <body className="bg-white text-gray-900 antialiased">
-        <div className="pb-24">{children}</div>
+      <body className="bg-gray-100 text-gray-900 antialiased">
+        <div className="mx-auto min-h-screen max-w-[1280px] bg-white shadow-sm">{children}</div>
       </body>
     </html>
   );
