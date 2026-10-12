@@ -53,6 +53,7 @@ class Pedido(Base):
     saiu_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     entregue_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     endereco: Mapped[str | None] = mapped_column(String(200))
+    reembolso: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0, server_default="0")  # devolvido por falta/substituto
 
 class ItemPedido(Base):
     __tablename__ = "itens_pedido"

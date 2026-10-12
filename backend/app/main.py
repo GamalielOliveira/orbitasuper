@@ -2,7 +2,54 @@ from fastapi import FastAPI, Depends
 from sqlalchemy import text
 from app.db import engine
 
-app = FastAPI(title="Daki Replica")
+import asyncio, os as _os
+from contextlib import asynccontextmanager
+
+EXPIRA_MIN = int(_os.getenv("EXPIRA_MIN", "15"))  # minutos para pagar
+
+def expirar_pedidos(minutos: int = EXPIRA_MIN) -> list[str]:
+    """Pedidos aguardando pagamento há mais de N minutos: libera estoque e marca 'expirado'."""
+    with engine.begin() as c:
+        ids = c.execute(text("""SELECT id, numero FROM pedidos WHERE status='aguardando_pagamento'
+                                AND criado_em < now() - make_interval(mins => :m) FOR UPDATE SKIP LOCKED"""), {"m": minutos}).all()
+        for p in ids:
+            c.execute(text("""UPDATE lotes l SET reservado = l.reservado - i.quantidade
+                              FROM itens_pedido i WHERE i.lote_id = l.id AND i.pedido_id = :id"""), {"id": p.id})
+            c.execute(text("UPDATE pedidos SET status='expirado' WHERE id=:id"), {"id": p.id})
+            c.execute(text("UPDATE pagamentos SET status='expirado', atualizado_em=now() WHERE pedido_id=:id AND status='pendente'"), {"id": p.id})
+        return [p.numero for p in ids]
+
+def seed_equipe():
+    """Cria S01 (separador) e E01 (entregador), PIN 1234, só se não houver funcionários."""
+    from app.auth import hash_pin
+    with engine.begin() as c:
+        if c.execute(text("SELECT COUNT(*) FROM funcionarios")).scalar(): return
+        for m, n, f in (("S01", "Separador Teste", "separador"), ("E01", "Entregador Teste", "entregador")):
+            c.execute(text("""INSERT INTO funcionarios (matricula, nome, funcao, pin_hash, ativo, disponivel)
+                              VALUES (:m, :n, :f, :h, true, true) ON CONFLICT DO NOTHING"""), {"m": m, "n": n, "f": f, "h": hash_pin("1234")})
+
+async def _loop_expiracao():
+    while True:
+        try:
+            feitos = await asyncio.to_thread(expirar_pedidos)
+            if feitos: print("expirados:", feitos, flush=True)
+        except Exception as e:
+            print("erro expiracao:", e, flush=True)
+        await asyncio.sleep(60)
+
+@asynccontextmanager
+async def lifespan(app):
+    try: seed_equipe()
+    except Exception as e: print("seed equipe falhou:", e, flush=True)
+    tarefa = asyncio.create_task(_loop_expiracao())
+    yield
+    tarefa.cancel()
+
+app = FastAPI(title="Daki Replica", lifespan=lifespan)
+
+@app.post("/admin/expirar")
+def expirar_agora(minutos: int = EXPIRA_MIN):
+    return {"expirados": expirar_pedidos(minutos)}
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["*"], allow_headers=["*"])
 
@@ -36,7 +83,7 @@ class PedidoIn(BaseModel):
 @app.post("/pedidos", status_code=201)
 def criar_pedido(p: PedidoIn):
     with engine.begin() as c:  # uma transação: tudo ou nada
-        num = c.execute(text("SELECT 'MD-' || LPAD((COUNT(*)+1)::text, 6, '0') FROM pedidos")).scalar()
+        num = c.execute(text("SELECT 'MD-' || LPAD((COALESCE(MAX(id),0)+1)::text, 6, '0') FROM pedidos")).scalar()
         pid = c.execute(text("INSERT INTO pedidos (numero, loja_id, cliente, status, total) VALUES (:n, (SELECT MIN(id) FROM lojas), :c, 'aguardando_pagamento', 0) RETURNING id"), {"n": num, "c": p.cliente}).scalar()
         total = 0
         for item in p.itens:
@@ -102,11 +149,13 @@ def webhook_pagamento(aviso: dict):
             return {"ok": True, "ignorado": "já processado"}  # idempotência: aviso repetido não faz nada
         if aviso["type"] == "payment.approved":
             c.execute(text("UPDATE pagamentos SET status='aprovado', atualizado_em=now() WHERE id=:id"), {"id": pg.id})
-            c.execute(text("UPDATE pedidos SET status='pago' WHERE id=:id"), {"id": pg.pedido_id})
+            ok = c.execute(text("UPDATE pedidos SET status='pago' WHERE id=:id AND status='aguardando_pagamento' RETURNING id"), {"id": pg.pedido_id}).first()
+            if not ok:  # pedido expirou antes do pagamento: marcar para estorno
+                c.execute(text("UPDATE pagamentos SET status='estornar' WHERE id=:id"), {"id": pg.id})
         else:
             c.execute(text("UPDATE pagamentos SET status='recusado', atualizado_em=now() WHERE id=:id"), {"id": pg.id})
-            c.execute(text("UPDATE pedidos SET status='pagamento_recusado' WHERE id=:id"), {"id": pg.pedido_id})
-            c.execute(text("""UPDATE lotes l SET reservado = l.reservado - i.quantidade
+            ok = c.execute(text("UPDATE pedidos SET status='pagamento_recusado' WHERE id=:id AND status='aguardando_pagamento' RETURNING id"), {"id": pg.pedido_id}).first()
+            if ok: c.execute(text("""UPDATE lotes l SET reservado = l.reservado - i.quantidade
                               FROM itens_pedido i WHERE i.lote_id = l.id AND i.pedido_id = :id"""), {"id": pg.pedido_id})
     return {"ok": True}
 
@@ -160,13 +209,21 @@ def detalhe(c, numero):
                               WHERE p.numero=:n ORDER BY pr.corredor, pr.nome"""), {"n": numero})
     return {"numero": numero, "itens": [dict(x._mapping) for x in itens]}
 
+SQL_SUBS = """
+    SELECT p.sku, p.nome, p.imagem_url, p.preco, SUM(l.quantidade-l.reservado) AS estoque
+    FROM produtos p JOIN lotes l ON l.sku=p.sku, produtos o
+    WHERE o.sku=:s AND p.sku<>o.sku AND position('_exp-' in p.sku) = 0 {filtro}
+      AND (o.conservacao IS NULL OR p.conservacao IS NOT DISTINCT FROM o.conservacao)
+    GROUP BY p.sku, o.preco HAVING SUM(l.quantidade-l.reservado)>0
+    ORDER BY ABS(p.preco - o.preco), p.nome LIMIT 5"""
+
 @app.get("/separacao/substitutos/{sku}")
 def substitutos(sku: str, u=Depends(exige("separador"))):
+    """Mesma subcategoria e conservação, preço mais próximo, top 5; se vazio, mesma categoria."""
     with engine.connect() as c:
-        r = c.execute(text("""SELECT p.sku, p.nome, p.imagem_url, SUM(l.quantidade-l.reservado) AS estoque
-                              FROM produtos p JOIN lotes l ON l.sku=p.sku
-                              WHERE p.categoria=(SELECT categoria FROM produtos WHERE sku=:s) AND p.sku<>:s
-                              GROUP BY p.sku HAVING SUM(l.quantidade-l.reservado)>0 ORDER BY p.nome"""), {"s": sku})
+        r = c.execute(text(SQL_SUBS.format(filtro="AND o.subcategoria IS NOT NULL AND p.subcategoria=o.subcategoria")), {"s": sku}).all()
+        if not r:
+            r = c.execute(text(SQL_SUBS.format(filtro="AND p.categoria=o.categoria")), {"s": sku}).all()
         return [dict(x._mapping) for x in r]
 
 class ItemSep(BaseModel):
@@ -177,30 +234,36 @@ class ItemSep(BaseModel):
 @app.post("/separacao/{numero}/concluir")
 def concluir(numero: str, itens: list[ItemSep], u=Depends(exige("separador"))):
     with engine.begin() as c:
-        p = c.execute(text("SELECT id FROM pedidos WHERE numero=:n AND status='em_separacao' AND separador=:m FOR UPDATE"), {"n": numero, "m": u["sub"]}).first()
+        p = c.execute(text("SELECT id, total FROM pedidos WHERE numero=:n AND status='em_separacao' AND separador=:m FOR UPDATE"), {"n": numero, "m": u["sub"]}).first()
         if not p: raise HTTPException(409, "Pedido não está com você")
         faltas = 0
         for it in itens:
-            orig = c.execute(text("SELECT lote_id, quantidade FROM itens_pedido WHERE id=:id AND pedido_id=:p"), {"id": it.id, "p": p.id}).first()
+            orig = c.execute(text("SELECT lote_id, quantidade, preco_unitario FROM itens_pedido WHERE id=:id AND pedido_id=:p AND status='pendente'"), {"id": it.id, "p": p.id}).first()
             if not orig: continue
-            st = it.status
+            st, novo_lote, preco = it.status, orig.lote_id, orig.preco_unitario
+            if st not in ("separado", "faltando", "substituido"): st = "faltando"
             if st == "substituido":
-                lote = c.execute(text("""SELECT id FROM lotes WHERE sku=:s AND quantidade-reservado>=:q
-                                         ORDER BY validade NULLS LAST FOR UPDATE LIMIT 1"""), {"s": it.substituto_sku, "q": orig.quantidade}).first()
+                lote = c.execute(text("""SELECT l.id, pr.preco FROM lotes l JOIN produtos pr ON pr.sku=l.sku
+                                         WHERE l.sku=:s AND l.quantidade-l.reservado>=:q
+                                         ORDER BY l.validade NULLS LAST FOR UPDATE OF l LIMIT 1"""), {"s": it.substituto_sku, "q": orig.quantidade}).first()
                 if lote:
                     c.execute(text("UPDATE lotes SET reservado=reservado+:q WHERE id=:id"), {"q": orig.quantidade, "id": lote.id})
+                    novo_lote = lote.id
+                    preco = min(orig.preco_unitario, lote.preco)  # cliente nunca paga mais pelo substituto
                 else:
                     st = "faltando"  # substituto sem saldo vira falta
             if st in ("faltando", "substituido"):
                 c.execute(text("UPDATE lotes SET reservado=reservado-:q WHERE id=:id"), {"q": orig.quantidade, "id": orig.lote_id})
             if st == "faltando": faltas += 1
-            c.execute(text("UPDATE itens_pedido SET status=:st, substituto_sku=:sub WHERE id=:id"),
-                      {"st": st, "sub": it.substituto_sku if st == "substituido" else None, "id": it.id})
-        c.execute(text("UPDATE pedidos SET status='pronto', separacao_fim=now() WHERE id=:id"), {"id": p.id})
-    return {"numero": numero, "status": "pronto", "faltas": faltas}
+            c.execute(text("UPDATE itens_pedido SET status=:st, substituto_sku=:sub, lote_id=:l, preco_unitario=:pr WHERE id=:id"),
+                      {"st": st, "sub": it.substituto_sku if st == "substituido" else None, "l": novo_lote, "pr": preco, "id": it.id})
+        novo = c.execute(text("SELECT COALESCE(SUM(quantidade*preco_unitario),0) FROM itens_pedido WHERE pedido_id=:p AND status IN ('separado','substituido')"), {"p": p.id}).scalar()
+        reembolso = p.total - novo
+        c.execute(text("UPDATE pedidos SET status='pronto', separacao_fim=now(), total=:t, reembolso=:r WHERE id=:id"), {"t": novo, "r": reembolso, "id": p.id})
+    return {"numero": numero, "status": "pronto", "faltas": faltas, "total": novo, "reembolso": reembolso}
 
 def resumo_entrega(c, numero):
-    r = c.execute(text("""SELECT numero, status, endereco, total,
+    r = c.execute(text("""SELECT numero, status, endereco, total, reembolso,
             EXTRACT(EPOCH FROM saiu_em - criado_em)::int AS loja_seg,
             EXTRACT(EPOCH FROM entregue_em - saiu_em)::int AS rota_seg,
             EXTRACT(EPOCH FROM entregue_em - criado_em)::int AS total_seg
@@ -237,6 +300,8 @@ def entreguei(numero: str, u=Depends(exige("entregador"))):
     with engine.begin() as c:
         ok = c.execute(text("UPDATE pedidos SET status='entregue', entregue_em=now() WHERE numero=:n AND entregador=:m AND status='a_caminho' RETURNING id"), {"n": numero, "m": u["sub"]}).first()
         if not ok: raise HTTPException(409, "Pedido não está a caminho com você")
+        c.execute(text("""UPDATE lotes l SET quantidade = l.quantidade - i.quantidade, reservado = l.reservado - i.quantidade
+                          FROM itens_pedido i WHERE i.lote_id = l.id AND i.pedido_id = :id AND i.status IN ('separado','substituido')"""), {"id": ok.id})
         c.execute(text("UPDATE funcionarios SET disponivel=true WHERE matricula=:m"), {"m": u["sub"]})
         return resumo_entrega(c, numero)
 
