@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Foto from "../Foto";
 
-const API = "http://localhost:8000";
+const API = "/api";
 type Item = { id: number; sku: string; nome: string; corredor: number; imagem_url: string | null; quantidade: number; lote: number; validade: string | null };
 type Sub = { sku: string; nome: string; imagem_url: string | null; preco: string; estoque: number };
 type Escolha = { status: "separado" | "faltando" | "substituido"; substituto_sku?: string; substituto_nome?: string };

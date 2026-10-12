@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import Mapa from "./Mapa";
 
-const API = "http://localhost:8000";
+const API = "/api";
 export type EnderecoForm = { cep: string; rua: string; numero_end: string; complemento: string; bairro: string; cidade: string; uf: string; referencia: string; lat: number | null; lon: number | null };
 const vazio: EnderecoForm = { cep: "", rua: "", numero_end: "", complemento: "", bairro: "", cidade: "", uf: "", referencia: "", lat: null, lon: null };
 

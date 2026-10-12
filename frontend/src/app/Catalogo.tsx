@@ -31,7 +31,7 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
   async function finalizar(endereco: EnderecoForm) {
     const itens = Object.entries(carrinho).map(([sku, quantidade]) => ({ sku, quantidade }));
     setEnviando(true);
-    const r = await fetch("http://localhost:8000/pedidos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cliente: "Gamaliel", itens, endereco }) });
+    const r = await fetch("/api/pedidos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cliente: "Gamaliel", itens, endereco }) });
     const d = await r.json();
     setEnviando(false);
     if (!r.ok) { setMsg(`❌ ${typeof d.detail === "string" ? d.detail : "Confira o endereço"}`); setPedirEndereco(false); return; }
@@ -41,16 +41,16 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
 
   async function pagar(metodo: "pix" | "cartao") {
     if (!checkout) return;
-    const r = await fetch(`http://localhost:8000/pedidos/${checkout.numero}/pagamento`, { method: "POST", headers: { "Content-Type": "application/json" },
+    const r = await fetch(`/api/pedidos/${checkout.numero}/pagamento`, { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ metodo, cartao_final: metodo === "cartao" ? cartao.slice(-4) : null }) });
     const d = await r.json();
     setCheckout({ ...checkout, etapa: "aguardando", pix: d.pix_copia_cola });
     const timer = setInterval(async () => {
-      const st = await (await fetch(`http://localhost:8000/pedidos/${checkout.numero}`)).json();
+      const st = await (await fetch(`/api/pedidos/${checkout.numero}`)).json();
       if (st.pagamento === "aprovado" || st.pagamento === "recusado") {
         clearInterval(timer);
         setCheckout(c => c && { ...c, etapa: st.pagamento });
-        setProdutos(await (await fetch("http://localhost:8000/produtos", { cache: "no-store" })).json());
+        setProdutos(await (await fetch("/api/produtos", { cache: "no-store" })).json());
       }
     }, 2000);
   }

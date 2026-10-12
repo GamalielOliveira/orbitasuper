@@ -51,6 +51,7 @@ class Pedido(Base):
     separacao_fim: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     entregador: Mapped[str | None] = mapped_column(ForeignKey("funcionarios.matricula", use_alter=True))
     saiu_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    chegou_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     entregue_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     endereco: Mapped[str | None] = mapped_column(String(200))
     cep: Mapped[str | None] = mapped_column(String(9))

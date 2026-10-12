@@ -307,23 +307,26 @@ def concluir(numero: str, itens: list[ItemSep], u=Depends(exige("separador"))):
 def resumo_entrega(c, numero):
     r = c.execute(text("""SELECT numero, status, endereco, total, reembolso, rua, numero_end, complemento, bairro, cidade, uf, cep, referencia,
             lat::float AS lat, lon::float AS lon, NULL::float AS loja_lat, NULL::float AS loja_lon,  -- TODO: lojas ainda não têm lat/lon
-            EXTRACT(EPOCH FROM saiu_em - criado_em)::int AS loja_seg,
-            EXTRACT(EPOCH FROM entregue_em - saiu_em)::int AS rota_seg,
-            EXTRACT(EPOCH FROM entregue_em - criado_em)::int AS total_seg
+            EXTRACT(EPOCH FROM saiu_em - criado_em)::int AS loja_seg,            -- clique até sair da loja
+            EXTRACT(EPOCH FROM chegou_em - saiu_em)::int AS rota_seg,            -- saída até chegada
+            EXTRACT(EPOCH FROM entregue_em - chegou_em)::int AS porta_seg,       -- chegada até entregue
+            EXTRACT(EPOCH FROM entregue_em - criado_em)::int AS total_seg,
+            EXTRACT(EPOCH FROM now() - saiu_em)::int AS desde_saida_seg,         -- para o cronômetro sobreviver a recarga
+            EXTRACT(EPOCH FROM now() - chegou_em)::int AS desde_chegada_seg
         FROM pedidos WHERE numero = :n"""), {"n": numero}).first()
     return dict(r._mapping)
 
 @app.get("/entrega/minha")
 def minha_entrega(u=Depends(exige("entregador"))):
     with engine.connect() as c:
-        n = c.execute(text("SELECT numero FROM pedidos WHERE entregador=:m AND status IN ('atribuido','a_caminho')"), {"m": u["sub"]}).scalar()
+        n = c.execute(text("SELECT numero FROM pedidos WHERE entregador=:m AND status IN ('atribuido','a_caminho','chegou')"), {"m": u["sub"]}).scalar()
         prontos = c.execute(text("SELECT COUNT(*) FROM pedidos WHERE status='pronto'")).scalar()
         return {"pedido": resumo_entrega(c, n) if n else None, "prontos_na_loja": prontos}
 
 @app.post("/entrega/pegar")
 def pegar_entrega(u=Depends(exige("entregador"))):
     with engine.begin() as c:
-        if c.execute(text("SELECT 1 FROM pedidos WHERE entregador=:m AND status IN ('atribuido','a_caminho')"), {"m": u["sub"]}).first():
+        if c.execute(text("SELECT 1 FROM pedidos WHERE entregador=:m AND status IN ('atribuido','a_caminho','chegou')"), {"m": u["sub"]}).first():
             raise HTTPException(409, "Você já tem uma entrega em andamento")
         p = c.execute(text("SELECT id, numero FROM pedidos WHERE status='pronto' ORDER BY separacao_fim FOR UPDATE SKIP LOCKED LIMIT 1")).first()
         if not p: raise HTTPException(404, "Nenhum pedido pronto na loja")
@@ -338,10 +341,18 @@ def retirei(numero: str, u=Depends(exige("entregador"))):
         if not ok: raise HTTPException(409, "Pedido não está atribuído a você")
         return resumo_entrega(c, numero)
 
+@app.post("/entrega/{numero}/cheguei")
+def cheguei(numero: str, u=Depends(exige("entregador"))):
+    with engine.begin() as c:
+        ok = c.execute(text("UPDATE pedidos SET status='chegou', chegou_em=now() WHERE numero=:n AND entregador=:m AND status='a_caminho' RETURNING id"), {"n": numero, "m": u["sub"]}).first()
+        if not ok: raise HTTPException(409, "Pedido não está a caminho com você")
+        return resumo_entrega(c, numero)
+
 @app.post("/entrega/{numero}/entreguei")
 def entreguei(numero: str, u=Depends(exige("entregador"))):
     with engine.begin() as c:
-        ok = c.execute(text("UPDATE pedidos SET status='entregue', entregue_em=now() WHERE numero=:n AND entregador=:m AND status='a_caminho' RETURNING id"), {"n": numero, "m": u["sub"]}).first()
+        ok = c.execute(text("""UPDATE pedidos SET status='entregue', entregue_em=now(), chegou_em=COALESCE(chegou_em, now())
+                               WHERE numero=:n AND entregador=:m AND status IN ('a_caminho','chegou') RETURNING id"""), {"n": numero, "m": u["sub"]}).first()
         if not ok: raise HTTPException(409, "Pedido não está a caminho com você")
         c.execute(text("""UPDATE lotes l SET quantidade = l.quantidade - i.quantidade, reservado = l.reservado - i.quantidade
                           FROM itens_pedido i WHERE i.lote_id = l.id AND i.pedido_id = :id AND i.status IN ('separado','substituido')"""), {"id": ok.id})
@@ -394,15 +405,16 @@ def quadro(u=Depends(qualquer_funcionario)):
                         WHEN 'em_separacao' THEN p.separacao_inicio
                         WHEN 'pronto' THEN p.separacao_fim
                         WHEN 'a_caminho' THEN p.saiu_em
+                        WHEN 'chegou' THEN p.chegou_em
                         WHEN 'atribuido' THEN p.separacao_fim END, p.criado_em))::int AS etapa_seg
             FROM pedidos p
             LEFT JOIN itens_pedido i ON i.pedido_id = p.id
             LEFT JOIN funcionarios fs ON fs.matricula = p.separador
             LEFT JOIN funcionarios fe ON fe.matricula = p.entregador
-            WHERE p.status IN ('pago','em_separacao','pronto','atribuido','a_caminho')
+            WHERE p.status IN ('pago','em_separacao','pronto','atribuido','a_caminho','chegou')
             GROUP BY p.id, fs.nome, fe.nome ORDER BY p.criado_em"""))
         col = {"pagos": [], "em_separacao": [], "prontos": [], "em_rota": []}
-        mapa = {"pago": "pagos", "em_separacao": "em_separacao", "pronto": "prontos", "atribuido": "em_rota", "a_caminho": "em_rota"}
+        mapa = {"pago": "pagos", "em_separacao": "em_separacao", "pronto": "prontos", "atribuido": "em_rota", "a_caminho": "em_rota", "chegou": "em_rota"}
         for x in r:
             col[mapa[x.status]].append(dict(x._mapping))
         return col
