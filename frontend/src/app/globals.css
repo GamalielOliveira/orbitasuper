@@ -28,3 +28,6 @@ body {
 body { background: #f3f4f6 !important; color: #111827; overflow-x: hidden; }
 
 html, body { background: #f3f4f6 !important; }
+
+html { font-size: 20px; }
+

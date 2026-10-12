@@ -60,9 +60,9 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
     const q = carrinho[p.sku] || 0;
     if (q === 0) return (
       <button onClick={() => add(p)} disabled={p.estoque === 0}
-        className="mt-2 w-full rounded-md bg-gray-100 py-1.5 text-lg font-bold text-blue-600 transition active:scale-95 hover:bg-blue-50 disabled:text-gray-300">+</button>);
+        className="mt-[8px] h-[34px] w-full rounded-[8px] bg-gray-100 text-[20px] font-bold leading-none text-gray-800 transition active:scale-95 hover:bg-gray-200 disabled:text-gray-300">+</button>);
     return (
-      <div className="mt-2 flex items-center justify-between rounded-md bg-blue-600 px-2 py-1 text-white">
+      <div className="mt-[8px] flex h-[34px] items-center justify-between rounded-[8px] bg-blue-600 px-[8px] text-white">
         <button onClick={() => rem(p.sku)} className="px-2 text-lg transition active:scale-90">{q === 1 ? "🗑" : "−"}</button>
         <span className="font-semibold">{q}</span>
         <button onClick={() => add(p)} disabled={q >= p.estoque} className="px-2 text-lg transition active:scale-90 disabled:opacity-40">+</button>
@@ -71,20 +71,26 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-white text-gray-900">
-      <header className="sticky top-0 z-20 flex items-center gap-4 border-b bg-white px-6 py-3">
-        <span className="text-2xl font-extrabold text-blue-600">daki</span>
-        <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔍 Busque por um produto aqui"
-          className="flex-1 rounded-full bg-gray-100 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300" />
-        <span className="hidden text-xs text-gray-600 md:block">📍 Belo Horizonte · <b className="text-blue-600">ALTERAR</b></span>
-        <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">⏱ 15-20 min</span>
-        <button onClick={() => setAberto(true)} className="relative rounded-full bg-yellow-400 px-3 py-1 text-sm font-bold transition active:scale-95">
-          🛒 {qtdTotal > 0 && <span className="ml-1">{qtdTotal}</span>}
-        </button>
+      <header className="sticky top-0 z-20 w-full bg-white shadow-[0_2px_8px_rgba(0,0,0,0.08)]">
+        <div className="mx-auto flex h-[64px] w-full max-w-[1232px] items-center gap-[16px]">
+          <span className="shrink-0 text-[28px] font-extrabold leading-none text-blue-600">daki</span>
+          <div className="relative flex-1">
+            <svg className="pointer-events-none absolute left-[12px] top-[10px] h-[16px] w-[16px] text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Busque por um produto aqui"
+              className="h-[36px] w-full rounded-[12px] bg-gray-100 pl-[36px] pr-[12px] text-[14px] outline-none focus:ring-2 focus:ring-blue-300" />
+          </div>
+          <button className="flex h-[32px] shrink-0 items-center gap-[6px] rounded-full bg-gray-100 px-[12px] text-[14px] font-semibold text-gray-700">📍 Adicionar endereço <span className="text-blue-600">+</span></button>
+          <span className="flex h-[32px] w-[165px] shrink-0 items-center justify-center gap-[6px] rounded-full bg-blue-600 text-[14px] font-semibold text-white">🕒 Em minutos</span>
+          <button onClick={() => setAberto(true)} aria-label="Sacola" className="relative flex h-[32px] w-[44px] shrink-0 items-center justify-center rounded-[10px] bg-blue-600 text-white transition active:scale-95">
+            <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 7h12l1 13H5L6 7Z" /><path d="M9 7a3 3 0 0 1 6 0" /></svg>
+            {qtdTotal > 0 && <span className="absolute -right-[6px] -top-[6px] flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-yellow-400 px-[4px] text-[11px] font-bold text-blue-900">{qtdTotal}</span>}
+          </button>
+        </div>
       </header>
 
       {cat === "Todos" && !busca && <Home produtos={produtos} categorias={categorias} abrir={setCat} acao={(p) => <Contador p={p} />} />}
-      <div className={cat === "Todos" && !busca ? "hidden" : "flex"}>
-        <nav className={`${cat === "Todos" && !busca ? "hidden" : ""} sticky top-14 h-[calc(100vh-56px)] w-64 shrink-0 overflow-y-auto border-r bg-white px-5 pb-4 pt-8`}>
+      <div className={cat === "Todos" && !busca ? "hidden" : "mx-auto flex w-full max-w-[1232px]"}>
+        <nav className={`${cat === "Todos" && !busca ? "hidden" : ""} sticky top-[64px] h-[calc(100vh-64px)] w-64 shrink-0 overflow-y-auto border-r bg-white px-5 pb-4 pt-8`}>
           {cat !== "Todos" && <button onClick={() => setCat("Todos")} className="mb-6 flex items-center gap-2 text-sm font-semibold text-blue-600 hover:underline">‹ Voltar ao Início</button>}
           <h2 className="mb-4 text-2xl font-bold text-blue-900">Lista de categorias</h2>
           {["Todos", VENCER, ...categorias].map(c => (
@@ -208,3 +214,4 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
     </div>
   );
 }
+
