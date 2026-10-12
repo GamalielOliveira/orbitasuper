@@ -86,14 +86,22 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
           {["Todos", VENCER, ...categorias].map(c => (
             <button key={c} onClick={() => setCat(c)}
               className={`mb-1 block w-full rounded-lg px-3 py-2 text-left text-sm transition ${cat === c ? "bg-blue-100 font-semibold text-blue-700" : "hover:bg-gray-100"}`}>{c}</button>
-          ))}
+          )).flatMap((b, i, arr) => {
+            const c = ["Todos", VENCER, ...categorias][i];
+            if (c !== cat || c === "Todos" || c === VENCER) return [b];
+            const subs = [...new Set(produtos.filter(p => p.categoria === c).map(p => p.subcategoria || c))];
+            return [b, ...subs.map(sc => (
+              <button key={c + sc} onClick={() => document.getElementById("sub-" + sc)?.scrollIntoView({ behavior: "smooth" })}
+                className="mb-1 block w-full rounded-lg py-1 pl-8 pr-3 text-left text-xs text-gray-600 hover:bg-gray-100">{sc}</button>
+            ))];
+          })}
         </nav>
 
         <main className="flex-1 p-6">
           <h1 className="mb-4 border-b pb-3 text-2xl font-bold text-blue-900">{cat}</h1>
           {visiveis.length === 0 && <p className="text-gray-500">Nenhum produto encontrado.</p>}
           {grupos.map(g => (
-            <section key={g} className="mb-8">
+            <section key={g} id={"sub-" + g} className="mb-8 scroll-mt-20">
               <h2 className="mb-3 text-lg font-bold text-blue-900">{g}</h2>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-4 max-w-6xl">
                 {visiveis.filter(p => (cat === "Todos" ? p.categoria : p.subcategoria || p.categoria) === g).map(p => {
