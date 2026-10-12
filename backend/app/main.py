@@ -76,15 +76,57 @@ class ItemIn(BaseModel):
     sku: str
     quantidade: int = Field(gt=0)
 
+class EnderecoIn(BaseModel):
+    cep: str = Field(pattern=r"^\d{5}-?\d{3}$")
+    rua: str = Field(min_length=2, max_length=150)
+    numero_end: str = Field(min_length=1, max_length=20)
+    complemento: str | None = Field(None, max_length=80)
+    bairro: str = Field(min_length=1, max_length=80)
+    cidade: str = Field(min_length=2, max_length=80)
+    uf: str = Field(pattern=r"^[A-Za-z]{2}$")
+    referencia: str | None = Field(None, max_length=150)
+    lat: float | None = Field(None, ge=-90, le=90)
+    lon: float | None = Field(None, ge=-180, le=180)
+
 class PedidoIn(BaseModel):
     cliente: str
-    itens: list[ItemIn]
+    itens: list[ItemIn] = Field(min_length=1)
+    endereco: EnderecoIn
+
+def nominatim(q: str):
+    """Geocodifica no OpenStreetMap; devolve (lat, lon) ou None."""
+    url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode({"q": q, "format": "json", "limit": 1, "countrycodes": "br"})
+    req = urllib.request.Request(url, headers={"User-Agent": "OrbitaSuper/1.0", "Accept-Language": "pt-BR"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            d = json.loads(r.read())
+        return (float(d[0]["lat"]), float(d[0]["lon"])) if d else None
+    except Exception:
+        return None
+
+def geocodificar(rua: str, numero: str | None, cidade: str, uf: str):
+    return (nominatim(f"{rua}, {numero}, {cidade}, {uf}, Brasil") if numero else None) or nominatim(f"{rua}, {cidade}, {uf}, Brasil")
+
+@app.get("/geo/geocode")
+def geo_geocode(rua: str, cidade: str, uf: str, numero: str | None = None):
+    pos = geocodificar(rua, numero, cidade, uf)
+    if not pos: raise HTTPException(404, "Endereço não encontrado no mapa")
+    return {"lat": pos[0], "lon": pos[1]}
 
 @app.post("/pedidos", status_code=201)
 def criar_pedido(p: PedidoIn):
+    e = p.endereco
+    if e.lat is None or e.lon is None:  # sem pino do cliente: geocodifica fora da transação
+        pos = geocodificar(e.rua, e.numero_end, e.cidade, e.uf)
+        if pos: e.lat, e.lon = pos
     with engine.begin() as c:  # uma transação: tudo ou nada
-        num = c.execute(text("SELECT 'MD-' || LPAD((COALESCE(MAX(id),0)+1)::text, 6, '0') FROM pedidos")).scalar()
-        pid = c.execute(text("INSERT INTO pedidos (numero, loja_id, cliente, status, total) VALUES (:n, (SELECT MIN(id) FROM lojas), :c, 'aguardando_pagamento', 0) RETURNING id"), {"n": num, "c": p.cliente}).scalar()
+        cep = e.cep.replace("-", ""); cep = f"{cep[:5]}-{cep[5:]}"
+        linha = f"{e.rua}, {e.numero_end}" + (f" - {e.complemento}" if e.complemento else "") + f" - {e.bairro}, {e.cidade}/{e.uf.upper()} - CEP {cep}"
+        num = c.execute(text("SELECT 'MD-' || LPAD(nextval('pedido_numero_seq')::text, 6, '0')")).scalar()
+        pid = c.execute(text("""INSERT INTO pedidos (numero, loja_id, cliente, status, total, endereco, cep, rua, numero_end, complemento, bairro, cidade, uf, referencia, lat, lon)
+                                VALUES (:n, (SELECT MIN(id) FROM lojas), :c, 'aguardando_pagamento', 0, :linha, :cep, :rua, :num, :comp, :bairro, :cidade, :uf, :ref, :lat, :lon) RETURNING id"""),
+                            {"n": num, "c": p.cliente, "linha": linha[:200], "cep": cep, "rua": e.rua, "num": e.numero_end, "comp": e.complemento or None,
+                             "bairro": e.bairro, "cidade": e.cidade, "uf": e.uf.upper(), "ref": e.referencia or None, "lat": e.lat, "lon": e.lon}).scalar()
         total = 0
         for item in p.itens:
             falta = item.quantidade
@@ -106,9 +148,9 @@ def criar_pedido(p: PedidoIn):
             if falta > 0:
                 raise HTTPException(409, f"Estoque insuficiente para {item.sku}")  # desfaz tudo
         c.execute(text("UPDATE pedidos SET total = :t WHERE id = :id"), {"t": total, "id": pid})
-    return {"numero": num, "status": "aguardando_pagamento", "total": total}
+    return {"numero": num, "status": "aguardando_pagamento", "total": total, "lat": e.lat, "lon": e.lon}
 
-import uuid, json, time, threading, urllib.request
+import uuid, json, time, threading, urllib.request, urllib.parse
 
 class PagamentoIn(BaseModel):
     metodo: str  # "pix" ou "cartao"
@@ -263,7 +305,8 @@ def concluir(numero: str, itens: list[ItemSep], u=Depends(exige("separador"))):
     return {"numero": numero, "status": "pronto", "faltas": faltas, "total": novo, "reembolso": reembolso}
 
 def resumo_entrega(c, numero):
-    r = c.execute(text("""SELECT numero, status, endereco, total, reembolso,
+    r = c.execute(text("""SELECT numero, status, endereco, total, reembolso, rua, numero_end, complemento, bairro, cidade, uf, cep, referencia,
+            lat::float AS lat, lon::float AS lon, NULL::float AS loja_lat, NULL::float AS loja_lon,  -- TODO: lojas ainda não têm lat/lon
             EXTRACT(EPOCH FROM saiu_em - criado_em)::int AS loja_seg,
             EXTRACT(EPOCH FROM entregue_em - saiu_em)::int AS rota_seg,
             EXTRACT(EPOCH FROM entregue_em - criado_em)::int AS total_seg
@@ -320,8 +363,46 @@ def posicao(numero: str):
         f = c.execute(text("""SELECT f.nome, f.device_id, p.status FROM pedidos p JOIN funcionarios f ON f.matricula = p.entregador
                               WHERE p.numero = :n"""), {"n": numero}).first()
     if not f or not f.device_id: raise HTTPException(404, "Pedido sem entregador rastreável")
-    dev = next((d for d in traccar("/api/devices") if d["uniqueId"] == f.device_id), None)
-    if not dev or not dev.get("positionId"): raise HTTPException(404, "Sem posição no Traccar")
-    pos = traccar(f"/api/positions?id={dev['positionId']}")[0]
+    try:
+        dev = next((d for d in traccar("/api/devices") if d["uniqueId"] == f.device_id), None)
+        if not dev or not dev.get("positionId"): raise HTTPException(404, "Sem posição no Traccar")
+        pos = traccar(f"/api/positions?id={dev['positionId']}")[0]
+    except HTTPException: raise
+    except Exception:
+        raise HTTPException(503, "Traccar indisponível")
     return {"entregador": f.nome, "status_pedido": f.status, "lat": pos["latitude"], "lon": pos["longitude"],
             "velocidade_kmh": round(pos["speed"] * 1.852, 1), "atualizado": pos["fixTime"]}
+
+import jwt
+from app.auth import bearer, SEGREDO
+
+def qualquer_funcionario(cred=Depends(bearer)):
+    try:
+        return jwt.decode(cred.credentials, SEGREDO, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        raise HTTPException(401, "Crachá inválido ou expirado")
+
+@app.get("/operacao/quadro")
+def quadro(u=Depends(qualquer_funcionario)):
+    """Quadro da loja (somente leitura): pedidos por etapa, com responsável e tempo."""
+    with engine.connect() as c:
+        r = c.execute(text("""
+            SELECT p.numero, p.status, p.total, COUNT(i.id) AS itens,
+                   fs.nome AS separador, fe.nome AS entregador,
+                   EXTRACT(EPOCH FROM now() - p.criado_em)::int AS desde_criado_seg,
+                   EXTRACT(EPOCH FROM now() - COALESCE(CASE p.status
+                        WHEN 'em_separacao' THEN p.separacao_inicio
+                        WHEN 'pronto' THEN p.separacao_fim
+                        WHEN 'a_caminho' THEN p.saiu_em
+                        WHEN 'atribuido' THEN p.separacao_fim END, p.criado_em))::int AS etapa_seg
+            FROM pedidos p
+            LEFT JOIN itens_pedido i ON i.pedido_id = p.id
+            LEFT JOIN funcionarios fs ON fs.matricula = p.separador
+            LEFT JOIN funcionarios fe ON fe.matricula = p.entregador
+            WHERE p.status IN ('pago','em_separacao','pronto','atribuido','a_caminho')
+            GROUP BY p.id, fs.nome, fe.nome ORDER BY p.criado_em"""))
+        col = {"pagos": [], "em_separacao": [], "prontos": [], "em_rota": []}
+        mapa = {"pago": "pagos", "em_separacao": "em_separacao", "pronto": "prontos", "atribuido": "em_rota", "a_caminho": "em_rota"}
+        for x in r:
+            col[mapa[x.status]].append(dict(x._mapping))
+        return col

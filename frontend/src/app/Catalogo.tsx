@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Endereco, { type EnderecoForm } from "./Endereco";
 import Foto from "./Foto";
 import Home from "./Home";
 
@@ -25,12 +26,16 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
   const qtdTotal = Object.values(carrinho).reduce((a, b) => a + b, 0);
   const total = Object.entries(carrinho).reduce((t, [sku, q]) => t + q * Number(produtos.find(p => p.sku === sku)!.preco), 0);
 
-  async function finalizar() {
+  const [pedirEndereco, setPedirEndereco] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  async function finalizar(endereco: EnderecoForm) {
     const itens = Object.entries(carrinho).map(([sku, quantidade]) => ({ sku, quantidade }));
-    const r = await fetch("http://localhost:8000/pedidos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cliente: "Gamaliel", itens }) });
+    setEnviando(true);
+    const r = await fetch("http://localhost:8000/pedidos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cliente: "Gamaliel", itens, endereco }) });
     const d = await r.json();
-    if (!r.ok) { setMsg(`❌ ${d.detail}`); return; }
-    setCarrinho({});
+    setEnviando(false);
+    if (!r.ok) { setMsg(`❌ ${typeof d.detail === "string" ? d.detail : "Confira o endereço"}`); setPedirEndereco(false); return; }
+    setCarrinho({}); setPedirEndereco(false);
     setCheckout({ numero: d.numero, total: Number(d.total), etapa: "escolha" });
   }
 
@@ -170,10 +175,11 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
         </div>
         <div className="border-t bg-gray-50 p-4">
           <div className="flex justify-between font-semibold"><span>Subtotal</span><span>{brl(total)}</span></div>
-          <button onClick={() => { finalizar(); setAberto(false); }} disabled={qtdTotal === 0}
+          <button onClick={() => { setPedirEndereco(true); setAberto(false); }} disabled={qtdTotal === 0}
             className="mt-3 w-full rounded-xl bg-blue-600 py-3 font-semibold text-white transition active:scale-95 disabled:bg-gray-300">Continuar para pagamento</button>
         </div>
       </aside>
+      {pedirEndereco && <Endereco enviando={enviando} onFechar={() => setPedirEndereco(false)} onConfirmar={finalizar} />}
       {checkout && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="w-[440px] rounded-2xl bg-white p-6 shadow-2xl">

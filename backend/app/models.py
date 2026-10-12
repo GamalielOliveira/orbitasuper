@@ -53,6 +53,16 @@ class Pedido(Base):
     saiu_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     entregue_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     endereco: Mapped[str | None] = mapped_column(String(200))
+    cep: Mapped[str | None] = mapped_column(String(9))
+    rua: Mapped[str | None] = mapped_column(String(150))
+    numero_end: Mapped[str | None] = mapped_column(String(20))
+    complemento: Mapped[str | None] = mapped_column(String(80))
+    bairro: Mapped[str | None] = mapped_column(String(80))
+    cidade: Mapped[str | None] = mapped_column(String(80))
+    uf: Mapped[str | None] = mapped_column(String(2))
+    referencia: Mapped[str | None] = mapped_column(String(150))
+    lat: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    lon: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
     reembolso: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0, server_default="0")  # devolvido por falta/substituto
 
 class ItemPedido(Base):
