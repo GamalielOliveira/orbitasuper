@@ -9,6 +9,8 @@ class Loja(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     nome: Mapped[str] = mapped_column(String(100))
     cidade: Mapped[str] = mapped_column(String(100))
+    lat: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))  # localização da loja (edite com o endereço real)
+    lon: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
 
 class Produto(Base):
     __tablename__ = "produtos"
@@ -64,6 +66,7 @@ class Pedido(Base):
     referencia: Mapped[str | None] = mapped_column(String(150))
     lat: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
     lon: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    rota_esperada_seg: Mapped[int | None] = mapped_column(Integer)  # tempo de rota previsto pelo OSRM (cache)
     reembolso: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0, server_default="0")  # devolvido por falta/substituto
 
 class ItemPedido(Base):
@@ -108,3 +111,12 @@ class Funcionario(Base):
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
     disponivel: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     device_id: Mapped[str | None] = mapped_column(String(40))  # identificador no Traccar
+
+
+class ClimaCache(Base):
+    __tablename__ = "clima_cache"
+    chave: Mapped[str] = mapped_column(String(40), primary_key=True)  # AAAA-MM-DD|HH|lat|lon
+    temp: Mapped[Decimal | None] = mapped_column(Numeric(4, 1))
+    chuva_mm: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
+    codigo: Mapped[int | None] = mapped_column(SmallInteger)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -306,7 +306,7 @@ def concluir(numero: str, itens: list[ItemSep], u=Depends(exige("separador"))):
 
 def resumo_entrega(c, numero):
     r = c.execute(text("""SELECT numero, status, endereco, total, reembolso, rua, numero_end, complemento, bairro, cidade, uf, cep, referencia,
-            lat::float AS lat, lon::float AS lon, NULL::float AS loja_lat, NULL::float AS loja_lon,  -- TODO: lojas ainda não têm lat/lon
+            lat::float AS lat, lon::float AS lon, (SELECT lat::float FROM lojas l WHERE l.id = pedidos.loja_id) AS loja_lat, (SELECT lon::float FROM lojas l WHERE l.id = pedidos.loja_id) AS loja_lon,
             EXTRACT(EPOCH FROM saiu_em - criado_em)::int AS loja_seg,            -- clique até sair da loja
             EXTRACT(EPOCH FROM chegou_em - saiu_em)::int AS rota_seg,            -- saída até chegada
             EXTRACT(EPOCH FROM entregue_em - chegou_em)::int AS porta_seg,       -- chegada até entregue
@@ -605,6 +605,74 @@ def periodo_sp(de, ate):
     if (ate - de).days > 30: raise HTTPException(422, "Período máximo de 31 dias")
     return de, ate
 
+# ---- Clima (Open-Meteo) e rota esperada (OSRM): buscados em segundo plano e guardados no banco ----
+# A tabela nunca espera por essas APIs: se ainda não há dado, mostra "—" e um trabalhador busca e grava.
+WMO = {0: ("Céu limpo", "☀️"), 1: ("Quase limpo", "🌤️"), 2: ("Parcialmente nublado", "⛅"), 3: ("Nublado", "☁️"),
+       45: ("Neblina", "🌫️"), 48: ("Neblina", "🌫️"), 51: ("Garoa fraca", "🌦️"), 53: ("Garoa", "🌦️"), 55: ("Garoa forte", "🌧️"),
+       61: ("Chuva fraca", "🌦️"), 63: ("Chuva", "🌧️"), 65: ("Chuva forte", "🌧️"), 80: ("Pancadas fracas", "🌦️"),
+       81: ("Pancadas de chuva", "🌧️"), 82: ("Pancadas fortes", "⛈️"), 95: ("Trovoada", "⛈️"), 96: ("Trovoada c/ granizo", "⛈️"), 99: ("Trovoada c/ granizo", "⛈️")}
+
+def estacao(d: date) -> str:
+    """Estação do ano no hemisfério sul (datas aproximadas dos equinócios/solstícios)."""
+    md = (d.month, d.day)
+    if md >= (12, 21) or md < (3, 20): return "verão"
+    if md < (6, 21): return "outono"
+    if md < (9, 23): return "inverno"
+    return "primavera"
+
+def chave_clima(dia: date, hora: int, lat: float, lon: float) -> str:
+    # arredonda o local em ~10 km (1 casa decimal): bairros vizinhos dividem o mesmo dado
+    return f"{dia}|{hora:02d}|{lat:.1f}|{lon:.1f}"
+
+_fila_ext: set = set()        # tarefas pendentes, sem repetição: ("clima", dia, lat, lon) ou ("osrm", numero, ...)
+_fila_lock = threading.Lock()
+
+def _get_json(url: str):
+    req = urllib.request.Request(url, headers={"User-Agent": "OrbitaSuper/1.0"})
+    with urllib.request.urlopen(req, timeout=3) as r:   # 3 s no máximo; falhou, tenta numa próxima atualização
+        return json.loads(r.read())
+
+def _buscar_clima_dia(dia: date, lat: float, lon: float):
+    """Busca as 24 horas do dia de uma vez e grava todas no cache."""
+    hoje = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    base = "https://api.open-meteo.com/v1/forecast" if (hoje - dia).days <= 80 else "https://archive-api.open-meteo.com/v1/archive"
+    d = _get_json(f"{base}?latitude={lat:.1f}&longitude={lon:.1f}&hourly=temperature_2m,precipitation,weather_code"
+                  f"&start_date={dia}&end_date={dia}&timezone=America%2FSao_Paulo")
+    h = d["hourly"]
+    with engine.begin() as c:
+        for i, t in enumerate(h["time"]):
+            c.execute(text("""INSERT INTO clima_cache (chave, temp, chuva_mm, codigo) VALUES (:k, :t, :p, :c)
+                              ON CONFLICT (chave) DO UPDATE SET temp = :t, chuva_mm = :p, codigo = :c"""),
+                      {"k": chave_clima(dia, int(t[11:13]), lat, lon), "t": h["temperature_2m"][i], "p": h["precipitation"][i], "c": h["weather_code"][i]})
+
+def _buscar_osrm(numero: str, la1, lo1, la2, lo2):
+    d = _get_json(f"https://router.project-osrm.org/route/v1/driving/{lo1},{la1};{lo2},{la2}?overview=false")
+    if d.get("code") == "Ok":
+        with engine.begin() as c:
+            c.execute(text("UPDATE pedidos SET rota_esperada_seg = :s WHERE numero = :n"), {"s": int(d["routes"][0]["duration"]), "n": numero})
+
+def _trabalhador_externo():
+    """Processa a fila em segundo plano, uma tarefa por vez (educado com as APIs públicas)."""
+    while True:
+        with _fila_lock:
+            tarefa = next(iter(_fila_ext), None)
+        if tarefa is None:
+            time.sleep(1); continue
+        try:
+            if tarefa[0] == "clima": _buscar_clima_dia(*tarefa[1:])
+            else: _buscar_osrm(*tarefa[1:])
+        except Exception as e:
+            print("API externa falhou:", tarefa[0], e, flush=True)
+        with _fila_lock:
+            _fila_ext.discard(tarefa)
+        time.sleep(0.5)
+
+threading.Thread(target=_trabalhador_externo, daemon=True).start()
+
+def pedir(tarefa):
+    with _fila_lock:
+        if len(_fila_ext) < 200: _fila_ext.add(tarefa)
+
 @app.get("/gerente/entregas")
 def gerente_entregas(de: date | None = None, ate: date | None = None, u=Depends(exige("gerente"))):
     """Uma linha por entrega (entregue ou em rota) no período, com tempos e indicadores de GPS."""
@@ -618,17 +686,41 @@ def gerente_entregas(de: date | None = None, ate: date | None = None, u=Depends(
                    EXTRACT(EPOCH FROM p.saiu_em - p.criado_em)::int     AS loja,
                    EXTRACT(EPOCH FROM p.chegou_em - p.saiu_em)::int     AS rota,
                    EXTRACT(EPOCH FROM p.entregue_em - p.chegou_em)::int AS porta,
-                   EXTRACT(EPOCH FROM COALESCE(p.entregue_em, now()) - p.criado_em)::int AS total
+                   EXTRACT(EPOCH FROM COALESCE(p.entregue_em, now()) - p.criado_em)::int AS total,
+                   (p.criado_em AT TIME ZONE 'America/Sao_Paulo')::date AS dia,
+                   EXTRACT(HOUR FROM COALESCE(p.saiu_em, p.criado_em) AT TIME ZONE 'America/Sao_Paulo')::int AS hora_saida,
+                   p.rota_esperada_seg, lj.lat::float AS loja_lat, lj.lon::float AS loja_lon
             FROM pedidos p LEFT JOIN funcionarios f ON f.matricula = p.entregador
+            LEFT JOIN lojas lj ON lj.id = p.loja_id
             WHERE (p.criado_em AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN :de AND :ate
               AND p.status IN ('entregue', 'a_caminho', 'chegou')
             ORDER BY p.criado_em DESC"""), {"de": de, "ate": ate}).all()
     saida = []
+    climas: dict = {}                      # cache local desta requisição (vários pedidos na mesma hora/lugar)
+    c2 = engine.connect()
     for r in rows:
         final = r.status == "entregue"
         pts = posicoes_viagem(r.numero, r.device_id, r.saiu_em, r.entregue_em or datetime.now(ZoneInfo("UTC")), final=final)
         g = metricas_gps(pts, (r.lat, r.lon)) or {}
+        # clima na hora da saída, no local do cliente (ou da loja se o pedido não tem coordenadas)
+        la, lo = (r.lat, r.lon) if r.lat is not None else (r.loja_lat, r.loja_lon)
+        clima = None
+        if la is not None:
+            k = chave_clima(r.dia, r.hora_saida, la, lo)
+            cc = climas.get(k)
+            if cc is None and k not in climas:
+                cc = climas.setdefault(k, c2.execute(text("SELECT temp, chuva_mm, codigo FROM clima_cache WHERE chave = :k"), {"k": k}).first())
+            if cc: clima = {"temp": float(cc.temp) if cc.temp is not None else None, "chuva_mm": float(cc.chuva_mm or 0),
+                            "rotulo": WMO.get(cc.codigo, ("—", "❔"))[0], "icone": WMO.get(cc.codigo, ("—", "❔"))[1]}
+            else: pedir(("clima", r.dia, round(la, 1), round(lo, 1)))
+        # rota esperada (OSRM) da loja até o cliente
+        if r.rota_esperada_seg is None and r.lat is not None and r.loja_lat is not None:
+            pedir(("osrm", r.numero, r.loja_lat, r.loja_lon, r.lat, r.lon))
+        esp = r.rota_esperada_seg
+        delta = (r.rota - esp) if esp is not None and r.rota is not None else None
         saida.append({
+            "clima": clima, "chuva": (clima["chuva_mm"] > 0.1) if clima else None, "estacao": estacao(r.dia),
+            "rota_esperada": esp, "delta_rota": delta, "delta_pct": round(100 * delta / esp) if delta is not None and esp else None,
             "numero": r.numero, "status": r.status, "cliente": r.cliente, "bairro": r.bairro, "entregador": r.entregador,
             "criado_em": r.criado_em, "dia_semana": DIAS[r.dow], "faixa": faixa_horario(r.hora),
             "loja": r.loja, "rota": r.rota, "porta": r.porta, "total": r.total, "em_rota": not final,
@@ -637,15 +729,19 @@ def gerente_entregas(de: date | None = None, ate: date | None = None, u=Depends(
             "dist_km": g.get("dist_km"), "vel_media": g.get("vel_media"), "vel_max": g.get("vel_max"),
             "parado_min": g.get("parado_min"), "paradas": g.get("paradas"), "reta_km": g.get("reta_km"), "desvio": g.get("desvio"),
         })
+    c2.close()
     return {"de": de, "ate": ate, "metas": {"loja": META_LOJA, "rota": META_ROTA, "porta": META_PORTA, "total": META_TOTAL}, "entregas": saida}
 
 @app.get("/gerente/entregas/{numero}/rota")
 def gerente_rota(numero: str, u=Depends(exige("gerente"))):
     """Pontos do GPS da viagem para desenhar no mapa, mais o pino do cliente."""
     with engine.connect() as c:
-        r = c.execute(text("""SELECT p.numero, p.status, p.saiu_em, p.entregue_em, p.lat::float AS lat, p.lon::float AS lon, f.device_id
-                              FROM pedidos p LEFT JOIN funcionarios f ON f.matricula = p.entregador WHERE p.numero = :n"""), {"n": numero}).first()
+        r = c.execute(text("""SELECT p.numero, p.status, p.saiu_em, p.entregue_em, p.lat::float AS lat, p.lon::float AS lon, f.device_id,
+                                     lj.lat::float AS loja_lat, lj.lon::float AS loja_lon
+                              FROM pedidos p LEFT JOIN funcionarios f ON f.matricula = p.entregador LEFT JOIN lojas lj ON lj.id = p.loja_id
+                              WHERE p.numero = :n"""), {"n": numero}).first()
     if not r: raise HTTPException(404, "Pedido não encontrado")
     pts = posicoes_viagem(r.numero, r.device_id, r.saiu_em, r.entregue_em or datetime.now(ZoneInfo("UTC")), final=r.status == "entregue") or []
     return {"cliente": {"lat": r.lat, "lon": r.lon} if r.lat is not None else None,
+            "loja": {"lat": r.loja_lat, "lon": r.loja_lon} if r.loja_lat is not None else None,
             "pontos": [{"lat": p[0], "lon": p[1], "vel": p[2], "t": p[3]} for p in pts]}
