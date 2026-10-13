@@ -368,6 +368,38 @@ def traccar(path: str):
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read())
 
+# ---- Distância percorrida por viagem, calculada com as posições do Traccar ----
+import math
+_cache_km: dict[str, float] = {}         # numero do pedido -> km (entrega concluída não muda, então guarda para sempre)
+_cache_dev: dict[str, int] = {}          # uniqueId do aparelho -> id interno do Traccar
+_traccar_off_ate = 0.0                   # se o Traccar falhar, não tenta de novo por 60 s (evita deixar o painel lento)
+
+def haversine_km(a, b):
+    """Distância em km entre dois pontos (lat, lon) na superfície da Terra."""
+    la1, lo1, la2, lo2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
+    return 2 * 6371 * math.asin(math.sqrt(h))
+
+def distancia_viagem(numero, unique_id, de, ate):
+    """km entre a saída da loja e a entrega; None se não houver Traccar/posições."""
+    global _traccar_off_ate
+    if numero in _cache_km: return _cache_km[numero]
+    if not de or not ate or time.time() < _traccar_off_ate or not os.environ.get("TRACCAR_URL"): return None
+    try:
+        if unique_id not in _cache_dev:
+            for d in traccar("/api/devices"): _cache_dev[d["uniqueId"]] = d["id"]
+        dev = _cache_dev.get(unique_id)
+        if dev is None: return None
+        iso = lambda t: datetime.fromisoformat(str(t)).astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+        pos = traccar(f"/api/positions?deviceId={dev}&from={iso(de)}&to={iso(ate)}")
+        pts = [(p["latitude"], p["longitude"]) for p in pos if p.get("valid", True)]
+        km = sum(haversine_km(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
+        _cache_km[numero] = km
+        return km
+    except Exception:
+        _traccar_off_ate = time.time() + 60
+        return None
+
 @app.get("/entrega/{numero}/posicao")
 def posicao(numero: str):
     with engine.connect() as c:
@@ -490,4 +522,37 @@ def gerente_resumo(de: date | None = None, ate: date | None = None, u=Depends(ex
             "no_prazo_pct": round(100 * t.no_prazo / t.entregues) if t.entregues else None,  # % entregue dentro da meta total
             "atrasados": t.entregues - t.no_prazo,
         }
-        return {"de": de, "ate": ate, "hoje": hoje_sp, "contagem": contagem, "faturamento": faturamento, "pedidos": pedidos, "tempos": tempos}
+        # 5) Indicadores por entregador no período (todo entregador cadastrado + quem entregou no período)
+        linhas = c.execute(text(f"""
+            WITH ent AS (   -- entregas concluídas no período
+                SELECT p.entregador AS mat, p.numero, p.saiu_em, p.entregue_em,
+                       EXTRACT(EPOCH FROM p.chegou_em - p.saiu_em)    AS rota,
+                       EXTRACT(EPOCH FROM p.entregue_em - p.chegou_em) AS porta,
+                       EXTRACT(EPOCH FROM p.entregue_em - p.criado_em) AS total
+                FROM pedidos p WHERE {hoje} AND p.status = 'entregue' AND p.entregador IS NOT NULL)
+            SELECT f.matricula, f.nome, f.device_id,
+                   COUNT(e.numero) AS entregas,
+                   AVG(e.rota)::int AS rota, AVG(e.porta)::int AS porta, AVG(e.total)::int AS total,
+                   COUNT(*) FILTER (WHERE e.total > :meta) AS atrasos,
+                   COUNT(*) FILTER (WHERE e.total <= :meta) AS no_prazo,
+                   -- agora: pedido em andamento com ele (se houver)
+                   (SELECT p2.numero FROM pedidos p2 WHERE p2.entregador = f.matricula
+                      AND p2.status IN ('atribuido','a_caminho','chegou') LIMIT 1) AS pedido_atual,
+                   COALESCE(json_agg(json_build_object('numero', e.numero, 'de', e.saiu_em, 'ate', e.entregue_em))
+                            FILTER (WHERE e.numero IS NOT NULL), '[]') AS viagens
+            FROM funcionarios f LEFT JOIN ent e ON e.mat = f.matricula
+            WHERE (f.funcao = 'entregador' AND f.ativo) OR e.numero IS NOT NULL
+            GROUP BY f.matricula ORDER BY f.nome"""), {"meta": META_TOTAL, **per}).all()
+        entregadores = []
+        for r in linhas:
+            # distância: soma das viagens com GPS (None se nenhuma viagem tiver dados do Traccar)
+            kms = [distancia_viagem(v["numero"], r.device_id, v["de"], v["ate"]) for v in r.viagens] if r.device_id else []
+            kms = [k for k in kms if k is not None]
+            entregadores.append({
+                "matricula": r.matricula, "nome": r.nome, "entregas": r.entregas,
+                "rota": r.rota, "porta": r.porta, "total": r.total, "atrasos": r.atrasos,
+                "no_prazo_pct": round(100 * r.no_prazo / r.entregas) if r.entregas else None,
+                "pedido_atual": r.pedido_atual,  # None = disponível
+                "distancia_km": round(sum(kms), 1) if kms else None,
+            })
+        return {"de": de, "ate": ate, "hoje": hoje_sp, "entregadores": entregadores, "contagem": contagem, "faturamento": faturamento, "pedidos": pedidos, "tempos": tempos}
