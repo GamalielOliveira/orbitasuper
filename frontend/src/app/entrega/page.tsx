@@ -22,7 +22,7 @@ export default function Entrega() {
   const [prontos, setProntos] = useState(0);
   const [pos, setPos] = useState<Pos | null>(null);
   const [placar, setPlacar] = useState<Ped | null>(null);
-  const [agora, setAgora] = useState(Date.now());
+  const [agora, setAgora] = useState(0); // relógio: preenchido só no navegador (useEffect abaixo)
   // cronômetro ancorado no relógio do servidor (sobrevive a recarga da página)
   const [saiu, setSaiu] = useState<number | null>(null);
   const [chegou, setChegou] = useState<number | null>(null);
@@ -39,7 +39,7 @@ export default function Entrega() {
     else if (r.status === 401) setUser(null);
   }
   useEffect(() => { atualizar(); const t = setInterval(atualizar, 5000); return () => clearInterval(t); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { const t = setInterval(() => setAgora(Date.now()), 1000); return () => clearInterval(t); }, []);
+  useEffect(() => { setAgora(Date.now()); const t = setInterval(() => setAgora(Date.now()), 1000); return () => clearInterval(t); }, []);
   useEffect(() => {
     if (!ped) { setPos(null); return; }
     const buscar = async () => { const r = await fetch(`${API}/entrega/${ped.numero}/posicao`); setPos(r.ok ? await r.json() : null); };

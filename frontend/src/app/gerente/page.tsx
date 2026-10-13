@@ -37,7 +37,11 @@ const ROTULO: Record<string, string> = { aguardando_pagamento: "Aguardando pgto"
   atribuido: "Aguardando retirada", a_caminho: "A caminho", chegou: "Na porta", entregue: "Entregue", expirado: "Expirado", pagamento_recusado: "Recusado" };
 
 // Data de hoje em São Paulo no formato AAAA-MM-DD, deslocada em N dias
-const diaSP = (desloc = 0) => new Date(Date.now() + desloc * 86400000).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+// Hoje em São Paulo (AAAA-MM-DD). Só é chamada depois que a página abre no navegador (useEffect),
+// porque o Next 16 não aceita ler o relógio durante a renderização.
+const hojeSP = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+// Soma N dias a uma data AAAA-MM-DD (conta em UTC para não sofrer com fuso/horário de verão)
+const somaDias = (iso: string, n: number) => { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const ddmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 type Periodo = "hoje" | "ontem" | "7d" | "custom";
 // Agrupa status do banco nos mesmos grupos dos cartões (as etapas da rua viram "em_rota")
@@ -59,9 +63,12 @@ export default function Gerente() {
   const [soAtrasados, setSoAtrasados] = useState(false); const [busca, setBusca] = useState("");
   // Período: hoje (padrão), ontem, últimos 7 dias ou personalizado (de/até)
   const [periodo, setPeriodo] = useState<Periodo>("hoje");
-  const [de, setDe] = useState(diaSP(-6)); const [ate, setAte] = useState(diaSP());
-  const consulta = periodo === "hoje" ? "" : periodo === "ontem" ? `?de=${diaSP(-1)}&ate=${diaSP(-1)}`
-    : periodo === "7d" ? `?de=${diaSP(-6)}&ate=${diaSP()}` : `?de=${de}&ate=${ate}`;
+  // "hoje" começa vazio e é preenchido depois de montar a página (evita o aviso de Date.now do Next)
+  const [hoje, setHoje] = useState("");
+  const [de, setDe] = useState(""); const [ate, setAte] = useState("");
+  useEffect(() => { const h = hojeSP(); setHoje(h); setDe(somaDias(h, -6)); setAte(h); }, []);
+  const consulta = !hoje || periodo === "hoje" ? "" : periodo === "ontem" ? `?de=${somaDias(hoje, -1)}&ate=${somaDias(hoje, -1)}`
+    : periodo === "7d" ? `?de=${somaDias(hoje, -6)}&ate=${hoje}` : `?de=${de}&ate=${ate}`;
   const [erroPer, setErroPer] = useState("");
   // Aba atual: visão geral (cartões + pedidos), entregas (análise) ou entregadores
   const [aba, setAba] = useState<"geral" | "entregas" | "entregadores">("geral");
@@ -141,7 +148,7 @@ export default function Gerente() {
             {periodo === "custom" && (<>
               <input type="date" value={de} max={ate} onChange={e => setDe(e.target.value)} className="rounded-lg bg-white px-2 py-1 shadow" />
               <span>até</span>
-              <input type="date" value={ate} min={de} max={diaSP()} onChange={e => setAte(e.target.value)} className="rounded-lg bg-white px-2 py-1 shadow" />
+              <input type="date" value={ate} min={de} max={hoje} onChange={e => setAte(e.target.value)} className="rounded-lg bg-white px-2 py-1 shadow" />
             </>)}
             {erroPer && <span className="text-red-600">{erroPer}</span>}
           </div>

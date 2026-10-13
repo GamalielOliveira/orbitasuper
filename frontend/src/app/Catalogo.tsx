@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Endereco, { type EnderecoForm } from "./Endereco";
 import Foto from "./Foto";
 import Home from "./Home";
@@ -9,7 +9,8 @@ type Produto = { sku: string; nome: string; categoria: string; subcategoria: str
 
 const VENCER = "⏰ Próximos a vencer";
 const brl = (v: number) => `R$ ${v.toFixed(2).replace(".", ",")}`;
-const venceEmBreve = (p: Produto) => !!p.proxima_validade && (new Date(p.proxima_validade).getTime() - Date.now()) / 86400000 <= 3;
+// "agora" vem do estado (lido no navegador depois de montar); 0 = ainda não sabemos, então não marca nada
+const venceEmBreve = (p: Produto, agora: number) => agora > 0 && !!p.proxima_validade && (new Date(p.proxima_validade).getTime() - agora) / 86400000 <= 3;
 
 export default function Catalogo({ inicial }: { inicial: Produto[] }) {
   const [produtos, setProdutos] = useState(inicial);
@@ -18,6 +19,8 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
   const [cat, setCat] = useState<string>("Todos");
   const [busca, setBusca] = useState("");
   const [msg, setMsg] = useState("");
+  const [agora, setAgora] = useState(0);
+  useEffect(() => setAgora(Date.now()), []); // relógio lido só no navegador
   const [checkout, setCheckout] = useState<null | { numero: string; total: number; etapa: "escolha" | "aguardando" | "aprovado" | "recusado"; pix?: string }>(null);
   const [cartao, setCartao] = useState("");
 
@@ -57,7 +60,7 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
 
   const categorias = [...new Set(produtos.map(p => p.categoria))];
   const visiveis = produtos.filter(p =>
-    (cat === "Todos" || (cat === VENCER ? venceEmBreve(p) : p.categoria === cat)) &&
+    (cat === "Todos" || (cat === VENCER ? venceEmBreve(p, agora) : p.categoria === cat)) &&
     p.nome.toLowerCase().includes(busca.toLowerCase()));
   const grupos = [...new Set(visiveis.map(p => (cat === "Todos" ? p.categoria : p.subcategoria || p.categoria)))];
 
@@ -128,7 +131,7 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
                       <p className="mt-2 line-clamp-2 text-sm font-medium">{p.nome}</p>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {p.conservacao && p.conservacao !== "Ambiente" && <span className="rounded-full bg-blue-50 px-2 text-[10px] text-blue-700">❄ {p.conservacao}</span>}
-                        {venceEmBreve(p) && <span className="rounded-full bg-orange-50 px-2 text-[10px] text-orange-700">⏰ Vence logo</span>}
+                        {venceEmBreve(p, agora) && <span className="rounded-full bg-orange-50 px-2 text-[10px] text-orange-700">⏰ Vence logo</span>}
                       </div>
                       <p className="mt-1 text-xs text-gray-500">{p.peso}</p>
                       <div className="mt-auto pt-2">

@@ -25,7 +25,7 @@ export default function Separacao() {
   const [subs, setSubs] = useState<{ item: number; lista: Sub[] } | null>(null);
   const [msg, setMsg] = useState("");
   const [inicio, setInicio] = useState<number | null>(null);
-  const [agora, setAgora] = useState(Date.now());
+  const [agora, setAgora] = useState(0); // relógio: preenchido só no navegador (useEffect abaixo)
 
   const h = useCallback(() => ({ Authorization: `Bearer ${user?.token}`, "Content-Type": "application/json" }), [user]);
   const carregar = useCallback(async () => {
@@ -34,7 +34,7 @@ export default function Separacao() {
     if (r.ok) setQuadro(await r.json()); else if (r.status === 401) setUser(null);
   }, [user, h]);
   useEffect(() => { carregar(); const t = setInterval(carregar, 5000); return () => clearInterval(t); }, [carregar]);
-  useEffect(() => { const t = setInterval(() => setAgora(Date.now()), 1000); return () => clearInterval(t); }, []);
+  useEffect(() => { setAgora(Date.now()); const t = setInterval(() => setAgora(Date.now()), 1000); return () => clearInterval(t); }, []);
 
   async function entrar() {
     const r = await fetch(`${API}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ matricula: mat, pin }) });
@@ -180,7 +180,7 @@ export default function Separacao() {
             <aside className="sticky top-4 h-fit rounded-xl bg-white p-4 shadow">
               <p className="text-sm text-gray-500">Separando</p>
               <p className="text-2xl font-bold">{pedido.numero}</p>
-              {inicio && <p className={`mt-2 inline-block rounded px-2 py-1 font-mono text-lg ${cor(Math.floor((agora - inicio) / 1000), META.em_separacao)}`}>⏱ {fmt(Math.floor((agora - inicio) / 1000))}</p>}
+              {inicio && agora > 0 && <p className={`mt-2 inline-block rounded px-2 py-1 font-mono text-lg ${cor(Math.floor((agora - inicio) / 1000), META.em_separacao)}`}>⏱ {fmt(Math.floor((agora - inicio) / 1000))}</p>}
               <p className="mt-4 mb-1 text-sm font-semibold">{feitos}/{total} itens</p>
               <div className="h-3 overflow-hidden rounded-full bg-gray-200"><div className="h-full bg-green-500 transition-all" style={{ width: `${total ? feitos / total * 100 : 0}%` }} /></div>
               <button onClick={concluir} disabled={feitos < total} className="mt-4 w-full rounded-xl bg-blue-600 py-4 font-bold text-white transition active:scale-95 disabled:bg-gray-300">Concluir separação</button>
