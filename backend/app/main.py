@@ -420,6 +420,8 @@ def quadro(u=Depends(qualquer_funcionario)):
         return col
 
 # ---------------- Área do gerente · passo 1: resumo do dia ----------------
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 # Metas de tempo (em segundos) usadas nos indicadores de SLA
 META_LOJA = 5 * 60    # clique do cliente até o pedido sair da loja
 META_ROTA = 15 * 60   # saída da loja até chegar na porta
@@ -427,25 +429,50 @@ META_PORTA = 3 * 60   # chegada até entregar na mão do cliente
 META_TOTAL = 20 * 60  # clique até entregue
 
 @app.get("/gerente/resumo")
-def gerente_resumo(u=Depends(exige("gerente"))):  # só crachá de gerente entra (outros recebem 403)
-    # "Hoje" no horário de São Paulo: da meia-noite local até agora
-    hoje = "(p.criado_em AT TIME ZONE 'America/Sao_Paulo')::date = (now() AT TIME ZONE 'America/Sao_Paulo')::date"
+def gerente_resumo(de: date | None = None, ate: date | None = None, u=Depends(exige("gerente"))):  # só gerente (outros: 403)
+    # Período em dias de São Paulo, inclusivo (?de=AAAA-MM-DD&ate=AAAA-MM-DD). Sem parâmetros = hoje.
+    hoje_sp = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    ate = ate or (de or hoje_sp)
+    de = de or ate
+    if de > ate: raise HTTPException(422, "'de' não pode ser depois de 'ate'")
+    if (ate - de).days > 30: raise HTTPException(422, "Período máximo de 31 dias")
+    # Filtro usado em todas as consultas abaixo (:de e :ate entram como parâmetros, sem risco de injeção)
+    hoje = "(p.criado_em AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN :de AND :ate"
+    per = {"de": de, "ate": ate}
     with engine.connect() as c:
         # 1) Quantos pedidos de hoje estão em cada status
         contagem = {s: 0 for s in ("aguardando_pagamento", "pago", "em_separacao", "pronto", "em_rota", "entregue", "expirado")}
-        for r in c.execute(text(f"SELECT p.status, COUNT(*) AS n FROM pedidos p WHERE {hoje} GROUP BY p.status")):
+        for r in c.execute(text(f"SELECT p.status, COUNT(*) AS n FROM pedidos p WHERE {hoje} GROUP BY p.status"), per):
             chave = "em_rota" if r.status in ("atribuido", "a_caminho", "chegou") else r.status  # junta as etapas da rua
             contagem[chave] = contagem.get(chave, 0) + r.n
         # 2) Faturamento: soma do total dos pedidos entregues hoje
-        faturamento = c.execute(text(f"SELECT COALESCE(SUM(p.total), 0) FROM pedidos p WHERE {hoje} AND p.status = 'entregue'")).scalar()
+        faturamento = c.execute(text(f"SELECT COALESCE(SUM(p.total), 0) FROM pedidos p WHERE {hoje} AND p.status = 'entregue'"), per).scalar()
         # 3) Lista dos pedidos de hoje, mais novos primeiro, com nomes de quem separou e entregou
+        #    e os tempos de cada etapa em segundos (NULL quando a etapa ainda não terminou)
+        andamento = "p.status IN ('pago','em_separacao','pronto','atribuido','a_caminho','chegou')"
         pedidos = c.execute(text(f"""
             SELECT p.numero, p.status, p.cliente, p.bairro, p.total, p.criado_em,
-                   fs.nome AS separador, fe.nome AS entregador
+                   fs.nome AS separador, fe.nome AS entregador,
+                   (SELECT COUNT(*) FROM itens_pedido i WHERE i.pedido_id = p.id) AS itens,
+                   EXTRACT(EPOCH FROM p.saiu_em - p.criado_em)::int     AS loja,
+                   EXTRACT(EPOCH FROM p.chegou_em - p.saiu_em)::int     AS rota,
+                   EXTRACT(EPOCH FROM p.entregue_em - p.chegou_em)::int AS porta,
+                   EXTRACT(EPOCH FROM p.entregue_em - p.criado_em)::int AS total_seg,
+                   -- no prazo: só faz sentido para entregues (senão NULL)
+                   CASE WHEN p.status = 'entregue' THEN EXTRACT(EPOCH FROM p.entregue_em - p.criado_em) <= :meta END AS no_prazo,
+                   -- em andamento: há quanto tempo está na etapa atual e desde o clique
+                   CASE WHEN {andamento} THEN EXTRACT(EPOCH FROM now() - COALESCE(CASE p.status
+                        WHEN 'em_separacao' THEN p.separacao_inicio WHEN 'pronto' THEN p.separacao_fim
+                        WHEN 'atribuido' THEN p.separacao_fim WHEN 'a_caminho' THEN p.saiu_em
+                        WHEN 'chegou' THEN p.chegou_em END, p.criado_em))::int END AS decorrido,
+                   CASE WHEN {andamento} THEN EXTRACT(EPOCH FROM now() - p.criado_em)::int END AS idade,
+                   -- atrasado: entregue fora da meta OU ainda em andamento além da meta total
+                   (p.status = 'entregue' AND EXTRACT(EPOCH FROM p.entregue_em - p.criado_em) > :meta)
+                     OR ({andamento} AND EXTRACT(EPOCH FROM now() - p.criado_em) > :meta) AS atrasado
             FROM pedidos p
             LEFT JOIN funcionarios fs ON fs.matricula = p.separador
             LEFT JOIN funcionarios fe ON fe.matricula = p.entregador
-            WHERE {hoje} ORDER BY p.criado_em DESC"""))
+            WHERE {hoje} ORDER BY p.criado_em DESC"""), {"meta": META_TOTAL, **per})
         pedidos = [dict(x._mapping) for x in pedidos]
         # 4) Tempos médios dos pedidos entregues hoje (mesmas contas do placar do entregador)
         t = c.execute(text(f"""
@@ -455,7 +482,7 @@ def gerente_resumo(u=Depends(exige("gerente"))):  # só crachá de gerente entra
                    AVG(EXTRACT(EPOCH FROM p.entregue_em - p.criado_em))::int AS total,
                    COUNT(*) AS entregues,
                    COUNT(*) FILTER (WHERE EXTRACT(EPOCH FROM p.entregue_em - p.criado_em) <= :meta) AS no_prazo
-            FROM pedidos p WHERE {hoje} AND p.status = 'entregue'"""), {"meta": META_TOTAL}).first()
+            FROM pedidos p WHERE {hoje} AND p.status = 'entregue'"""), {"meta": META_TOTAL, **per}).first()
         tempos = {
             "loja": t.loja, "rota": t.rota, "porta": t.porta, "total": t.total,  # médias em segundos (None se nada entregue)
             "metas": {"loja": META_LOJA, "rota": META_ROTA, "porta": META_PORTA, "total": META_TOTAL},
@@ -463,4 +490,4 @@ def gerente_resumo(u=Depends(exige("gerente"))):  # só crachá de gerente entra
             "no_prazo_pct": round(100 * t.no_prazo / t.entregues) if t.entregues else None,  # % entregue dentro da meta total
             "atrasados": t.entregues - t.no_prazo,
         }
-        return {"contagem": contagem, "faturamento": faturamento, "pedidos": pedidos, "tempos": tempos}
+        return {"de": de, "ate": ate, "hoje": hoje_sp, "contagem": contagem, "faturamento": faturamento, "pedidos": pedidos, "tempos": tempos}
