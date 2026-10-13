@@ -150,7 +150,7 @@ def criar_pedido(p: PedidoIn):
         c.execute(text("UPDATE pedidos SET total = :t WHERE id = :id"), {"t": total, "id": pid})
     return {"numero": num, "status": "aguardando_pagamento", "total": total, "lat": e.lat, "lon": e.lon}
 
-import uuid, json, time, threading, urllib.request, urllib.parse
+import uuid, json, time, threading, urllib.request, urllib.parse, urllib.error
 
 class PagamentoIn(BaseModel):
     metodo: str  # "pix" ou "cartao"
@@ -370,7 +370,7 @@ def traccar(path: str):
 
 # ---- Distância percorrida por viagem, calculada com as posições do Traccar ----
 import math
-_cache_km: dict[str, float] = {}         # numero do pedido -> km (entrega concluída não muda, então guarda para sempre)
+_cache_km: dict[str, float] = {}         # numero do pedido -> km (só quando as posições já estão no cache)
 _cache_dev: dict[str, int] = {}          # uniqueId do aparelho -> id interno do Traccar
 _traccar_off_ate = 0.0                   # se o Traccar falhar, não tenta de novo por 60 s (evita deixar o painel lento)
 
@@ -380,35 +380,79 @@ def haversine_km(a, b):
     h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
     return 2 * 6371 * math.asin(math.sqrt(h))
 
-_cache_pos: dict[str, list] = {}        # numero -> posições da viagem (só para entregas concluídas)
+_cache_pos: dict[str, list] = {}        # numero -> posições da viagem (só entregas concluídas há >10 min e com 2+ pontos)
+from datetime import timedelta
+PAD = timedelta(minutes=2)               # folga na janela: relógio do celular x servidor
+
+def traccar_req(path: str):
+    """Chama a API do Traccar e devolve (status HTTP, dados). Nunca lança erro: status 0 = sem conexão."""
+    if not os.environ.get("TRACCAR_URL"): return 0, None
+    try:
+        return 200, traccar(path)
+    except urllib.error.HTTPError as e:
+        print(f"Traccar HTTP {e.code} em {path}", flush=True)
+        return e.code, None
+    except Exception as e:
+        print(f"Traccar sem conexão em {path}: {e}", flush=True)
+        return 0, None
+
+def traccar_id(unique_id: str):
+    """uniqueId do aparelho (ex.: 79597349) -> id interno do Traccar (ex.: 2)."""
+    if unique_id in _cache_dev: return _cache_dev[unique_id], 200
+    st, devs = traccar_req(f"/api/devices?uniqueId={urllib.parse.quote(str(unique_id))}")
+    if st == 200 and devs:
+        _cache_dev[unique_id] = devs[0]["id"]
+        return devs[0]["id"], st
+    return None, st
+
+def _utc(t) -> str:
+    """Horário -> texto UTC com Z, como o Traccar espera (ex.: 2026-10-13T16:58:00Z)."""
+    if isinstance(t, str): t = datetime.fromisoformat(t.replace("Z", "+00:00"))
+    return t.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def buscar_rota_traccar(unique_id, de, ate):
+    """Busca as posições da viagem no relatório de rota do Traccar. Devolve um diagnóstico completo."""
+    info = {"unique_id": unique_id, "device_id": None, "de": None, "ate": None, "http": None, "pontos": 0, "pts": None}
+    if not unique_id or not de or not ate: info["erro"] = "pedido sem aparelho ou sem horários de saída/entrega"; return info
+    dev, st = traccar_id(unique_id)
+    info["device_id"], info["http"] = dev, st
+    if dev is None: info["erro"] = "aparelho não encontrado no Traccar" if st == 200 else "falha ao consultar aparelhos"; return info
+    de = datetime.fromisoformat(str(de)) - PAD; ate = datetime.fromisoformat(str(ate)) + PAD
+    info["de"], info["ate"] = _utc(de), _utc(ate)
+    st, pos = traccar_req(f"/api/reports/route?deviceId={dev}&from={info['de']}&to={info['ate']}")
+    info["http"] = st
+    if st != 200 or pos is None: info["erro"] = "falha no relatório de rota"; return info
+    # mantém todas as posições com coordenada (o Traccar Client às vezes marca valid=false mesmo com GPS bom)
+    pts = [(p["latitude"], p["longitude"], round((p.get("speed") or 0) * 1.852, 1), p.get("fixTime"))
+           for p in pos if p.get("latitude") or p.get("longitude")]
+    pts.sort(key=lambda p: str(p[3]))
+    info["pontos"], info["pts"] = len(pts), pts
+    return info
 
 def posicoes_viagem(numero, unique_id, de, ate, final=True):
-    """Posições do Traccar entre a saída e a entrega: [(lat, lon, km/h, horário ISO)]. None se indisponível.
-    Só guarda no cache quando a entrega terminou (final=True); em rota busca de novo."""
+    """Posições da viagem: [(lat, lon, km/h, horário)]. None se indisponível.
+    Só guarda no cache se a entrega terminou há mais de 10 min E veio com 2+ pontos:
+    o celular pode mandar posições atrasadas (sem sinal), então resultado vazio nunca fica guardado."""
     global _traccar_off_ate
     if numero in _cache_pos: return _cache_pos[numero]
-    if not unique_id or not de or not ate or time.time() < _traccar_off_ate or not os.environ.get("TRACCAR_URL"): return None
-    try:
-        if unique_id not in _cache_dev:
-            for d in traccar("/api/devices"): _cache_dev[d["uniqueId"]] = d["id"]
-        dev = _cache_dev.get(unique_id)
-        if dev is None: return None
-        iso = lambda t: datetime.fromisoformat(str(t)).astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
-        pos = traccar(f"/api/positions?deviceId={dev}&from={iso(de)}&to={iso(ate)}")
-        pts = [(p["latitude"], p["longitude"], round(p.get("speed", 0) * 1.852, 1), p.get("fixTime")) for p in pos if p.get("valid", True)]
-        if final: _cache_pos[numero] = pts
-        return pts
-    except Exception:
-        _traccar_off_ate = time.time() + 60   # Traccar fora: espera 60 s antes de tentar de novo
+    if not unique_id or time.time() < _traccar_off_ate or not os.environ.get("TRACCAR_URL"): return None
+    info = buscar_rota_traccar(unique_id, de, ate)
+    if info["http"] == 0:
+        _traccar_off_ate = time.time() + 60   # Traccar fora do ar: espera 60 s antes de tentar de novo
         return None
+    pts = info["pts"]
+    if pts is None: return None
+    terminou_ha = (datetime.now(ZoneInfo("UTC")) - datetime.fromisoformat(str(ate))).total_seconds() if ate else 0
+    if final and len(pts) >= 2 and terminou_ha > 600: _cache_pos[numero] = pts
+    return pts
 
 def distancia_viagem(numero, unique_id, de, ate):
-    """km entre a saída da loja e a entrega; None se não houver Traccar/posições."""
+    """km entre a saída da loja e a entrega; None se não houver Traccar/posições (nunca guarda 0 por falta de dados)."""
     if numero in _cache_km: return _cache_km[numero]
     pts = posicoes_viagem(numero, unique_id, de, ate)
-    if pts is None: return None
+    if not pts or len(pts) < 2: return None
     km = sum(haversine_km(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
-    _cache_km[numero] = km
+    if numero in _cache_pos: _cache_km[numero] = km   # só guarda quando as posições também foram guardadas
     return km
 
 def metricas_gps(pts, destino=None):
@@ -484,7 +528,7 @@ def quadro(u=Depends(qualquer_funcionario)):
         return col
 
 # ---------------- Área do gerente · passo 1: resumo do dia ----------------
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 # Metas de tempo (em segundos) usadas nos indicadores de SLA
 META_LOJA = 5 * 60    # clique do cliente até o pedido sair da loja
@@ -745,3 +789,18 @@ def gerente_rota(numero: str, u=Depends(exige("gerente"))):
     return {"cliente": {"lat": r.lat, "lon": r.lon} if r.lat is not None else None,
             "loja": {"lat": r.loja_lat, "lon": r.loja_lon} if r.loja_lat is not None else None,
             "pontos": [{"lat": p[0], "lon": p[1], "vel": p[2], "t": p[3]} for p in pts]}
+
+
+@app.get("/gerente/debug/traccar/{numero}")
+def debug_traccar(numero: str, u=Depends(exige("gerente"))):
+    """Diagnóstico: mostra a janela usada, ids do aparelho, status HTTP do Traccar e quantos pontos vieram."""
+    with engine.connect() as c:
+        r = c.execute(text("""SELECT p.numero, p.status, p.saiu_em, p.chegou_em, p.entregue_em, f.nome AS entregador, f.device_id
+                              FROM pedidos p LEFT JOIN funcionarios f ON f.matricula = p.entregador WHERE p.numero = :n"""), {"n": numero}).first()
+    if not r: raise HTTPException(404, "Pedido não encontrado")
+    info = buscar_rota_traccar(r.device_id, r.saiu_em, r.entregue_em or datetime.now(ZoneInfo("UTC")))
+    pts = info.pop("pts") or []
+    return {"pedido": r.numero, "status": r.status, "entregador": r.entregador,
+            "saiu_em": r.saiu_em, "chegou_em": r.chegou_em, "entregue_em": r.entregue_em,
+            "traccar_configurado": bool(os.environ.get("TRACCAR_URL")), **info,
+            "em_cache": numero in _cache_pos, "primeiro": pts[0] if pts else None, "ultimo": pts[-1] if pts else None}
