@@ -6,8 +6,14 @@ const API = "/api"; // passa pelo Next, que repassa para o backend (funciona tam
 
 // Formato dos dados que o backend devolve em GET /gerente/resumo
 type Pedido = { numero: string; status: string; cliente: string; bairro: string | null; total: string; criado_em: string; separador: string | null; entregador: string | null };
-type Resumo = { contagem: Record<string, number>; faturamento: string; pedidos: Pedido[] };
+type Tempos = { loja: number | null; rota: number | null; porta: number | null; total: number | null;
+  metas: { loja: number; rota: number; porta: number; total: number }; entregues: number; no_prazo_pct: number | null; atrasados: number };
+type Resumo = { contagem: Record<string, number>; faturamento: string; pedidos: Pedido[]; tempos: Tempos };
 
+// Segundos -> "m:ss" (ex.: 754 -> "12:34")
+const mmss = (s: number | null) => s == null ? "—" : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+// Cor do cartão comparando com a meta: verde até a meta, amarelo até 50% acima, vermelho além disso
+const corMeta = (s: number | null, meta: number) => s == null ? "bg-white text-gray-500" : s <= meta ? "bg-green-100 text-green-800" : s <= meta * 1.5 ? "bg-yellow-100 text-yellow-800" : "bg-red-100 text-red-700";
 const brl = (v: number | string) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 // Nome e cor de cada status, na ordem em que aparecem nos cartões
@@ -85,6 +91,23 @@ export default function Gerente() {
                 <p className="text-xs">{s.nome}</p>
                 <p className="text-3xl font-bold">{resumo.contagem[s.k] ?? 0}</p>
               </div>))}
+          </div>
+
+          {/* Tempos de hoje: médias dos pedidos entregues comparadas com a meta */}
+          <h2 className="mb-2 font-bold">Tempos de hoje <span className="text-sm font-normal text-gray-500">· média de {resumo.tempos.entregues} entregue(s)</span></h2>
+          <div className="mb-4 grid grid-cols-5 gap-3">
+            {([["loja", "Loja", "clique → saída"], ["rota", "Rota", "saída → chegada"], ["porta", "Porta", "chegada → entregue"], ["total", "Total", "clique → entregue"]] as const).map(([k, nome, dica]) => (
+              <div key={k} className={`rounded-xl p-3 shadow ${corMeta(resumo.tempos[k], resumo.tempos.metas[k])}`}>
+                <p className="text-xs">{nome} <span className="opacity-60">· {dica}</span></p>
+                <p className="font-mono text-3xl font-bold">{mmss(resumo.tempos[k])}</p>
+                <p className="text-xs opacity-70">meta {mmss(resumo.tempos.metas[k])}</p>
+              </div>))}
+            {/* No prazo: % de entregues dentro da meta total e quantos atrasaram */}
+            <div className={`rounded-xl p-3 shadow ${resumo.tempos.no_prazo_pct == null ? "bg-white text-gray-500" : resumo.tempos.no_prazo_pct >= 90 ? "bg-green-100 text-green-800" : resumo.tempos.no_prazo_pct >= 70 ? "bg-yellow-100 text-yellow-800" : "bg-red-100 text-red-700"}`}>
+              <p className="text-xs">No prazo (≤ {mmss(resumo.tempos.metas.total)})</p>
+              <p className="text-3xl font-bold">{resumo.tempos.no_prazo_pct == null ? "—" : `${resumo.tempos.no_prazo_pct}%`}</p>
+              <p className="text-xs opacity-70">{resumo.tempos.atrasados} atrasado(s)</p>
+            </div>
           </div>
 
           {/* Tabela com os pedidos de hoje (mais novos em cima) */}

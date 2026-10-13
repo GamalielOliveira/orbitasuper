@@ -420,6 +420,12 @@ def quadro(u=Depends(qualquer_funcionario)):
         return col
 
 # ---------------- Área do gerente · passo 1: resumo do dia ----------------
+# Metas de tempo (em segundos) usadas nos indicadores de SLA
+META_LOJA = 5 * 60    # clique do cliente até o pedido sair da loja
+META_ROTA = 15 * 60   # saída da loja até chegar na porta
+META_PORTA = 3 * 60   # chegada até entregar na mão do cliente
+META_TOTAL = 20 * 60  # clique até entregue
+
 @app.get("/gerente/resumo")
 def gerente_resumo(u=Depends(exige("gerente"))):  # só crachá de gerente entra (outros recebem 403)
     # "Hoje" no horário de São Paulo: da meia-noite local até agora
@@ -440,4 +446,21 @@ def gerente_resumo(u=Depends(exige("gerente"))):  # só crachá de gerente entra
             LEFT JOIN funcionarios fs ON fs.matricula = p.separador
             LEFT JOIN funcionarios fe ON fe.matricula = p.entregador
             WHERE {hoje} ORDER BY p.criado_em DESC"""))
-        return {"contagem": contagem, "faturamento": faturamento, "pedidos": [dict(x._mapping) for x in pedidos]}
+        pedidos = [dict(x._mapping) for x in pedidos]
+        # 4) Tempos médios dos pedidos entregues hoje (mesmas contas do placar do entregador)
+        t = c.execute(text(f"""
+            SELECT AVG(EXTRACT(EPOCH FROM p.saiu_em - p.criado_em))::int     AS loja,
+                   AVG(EXTRACT(EPOCH FROM p.chegou_em - p.saiu_em))::int     AS rota,
+                   AVG(EXTRACT(EPOCH FROM p.entregue_em - p.chegou_em))::int AS porta,
+                   AVG(EXTRACT(EPOCH FROM p.entregue_em - p.criado_em))::int AS total,
+                   COUNT(*) AS entregues,
+                   COUNT(*) FILTER (WHERE EXTRACT(EPOCH FROM p.entregue_em - p.criado_em) <= :meta) AS no_prazo
+            FROM pedidos p WHERE {hoje} AND p.status = 'entregue'"""), {"meta": META_TOTAL}).first()
+        tempos = {
+            "loja": t.loja, "rota": t.rota, "porta": t.porta, "total": t.total,  # médias em segundos (None se nada entregue)
+            "metas": {"loja": META_LOJA, "rota": META_ROTA, "porta": META_PORTA, "total": META_TOTAL},
+            "entregues": t.entregues,
+            "no_prazo_pct": round(100 * t.no_prazo / t.entregues) if t.entregues else None,  # % entregue dentro da meta total
+            "atrasados": t.entregues - t.no_prazo,
+        }
+        return {"contagem": contagem, "faturamento": faturamento, "pedidos": pedidos, "tempos": tempos}
