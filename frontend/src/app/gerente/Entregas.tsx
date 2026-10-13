@@ -12,6 +12,7 @@ type Entrega = {
   clima: { temp: number | null; chuva_mm: number; rotulo: string; icone: string } | null; chuva: boolean | null; estacao: string;
   rota_esperada: number | null; delta_rota: number | null; delta_pct: number | null;
   dist_km: number | null; vel_media: number | null; vel_max: number | null; parado_min: number | null; paradas: number | null; reta_km: number | null; desvio: number | null;
+  sem_sinal_min: number | null; pontos: number | null; esparso: boolean | null;
 };
 type Col = "numero" | "criado_em" | "dia_semana" | "faixa" | "cliente" | "bairro" | "entregador" | "chuva" | "rota" | "rota_esperada" | "delta_rota" | "porta" | "total" | "dist_km" | "vel_media" | "parado_min";
 
@@ -116,7 +117,7 @@ export default function Entregas({ token, consulta }: { token: string; consulta:
                 <td className={`px-2 font-mono ${corCel(e.total, M.total)}`}>{mmss(e.total)}{e.em_rota && <span className="text-gray-400">…</span>}</td>
                 <td className="px-2 text-right">{num(e.dist_km)}</td>
                 <td className="px-2 text-right">{num(e.vel_media, " km/h")}</td>
-                <td className="px-2 text-right">{num(e.parado_min, " min")}</td>
+                <td className="px-2 text-right" title={e.sem_sinal_min ? `inclui ${num(e.sem_sinal_min)} min sem sinal/parado` : ""}>{num(e.parado_min, " min")}{e.sem_sinal_min ? <span className="text-gray-400"> ⚠</span> : null}</td>
                 <td className="px-2 text-center">{e.em_rota ? "🛵" : e.no_prazo ? "✅" : "⏰"}</td>
               </tr>
               {aberto === e.numero && <tr><td colSpan={17} className="bg-gray-50 p-0"><Detalhe e={e} metas={M} token={token} /></td></tr>}
@@ -173,13 +174,13 @@ function Detalhe({ e, metas, token }: { e: Entrega; metas: Metas; token: string 
         </div>
         <p className="mb-4 text-xs text-gray-500">{etapas.map(([n, , m]) => `${n} meta ${mmss(m)}`).join(" · ")}</p>
 
-        <p className="mb-1 text-xs font-semibold text-gray-500">GPS</p>
+        <p className="mb-1 text-xs font-semibold text-gray-500">GPS{e.pontos != null && <span className={`ml-2 font-normal ${e.esparso ? "text-orange-600" : ""}`}>· {e.pontos} pontos{e.esparso ? " (poucos pontos de GPS)" : ""}</span>}</p>
         <div className="mb-4 grid grid-cols-5 gap-2 text-sm">
           <Info t="Distância" v={num(e.dist_km, " km")} />
           <Info t="Vel. média / máx." v={e.vel_media == null ? "—" : `${num(e.vel_media)} / ${num(e.vel_max)} km/h`} />
-          <Info t="Parado" v={e.parado_min == null ? "—" : `${num(e.parado_min)} min · ${e.paradas} parada(s) >1 min`} />
+          <Info t="Parado" v={e.parado_min == null ? "—" : `${num(e.parado_min)} min · ${e.paradas} parada(s) >1 min${e.sem_sinal_min ? ` · ${num(e.sem_sinal_min)} min sem sinal/parado` : ""}`} />
           <Info t="Rota real × esperada" v={e.rota_esperada == null ? "—" : `${mmss(e.rota)} × ${mmss(e.rota_esperada)} (${e.delta_pct == null ? "—" : `${e.delta_pct > 0 ? "+" : ""}${e.delta_pct}%`})`} />
-          <Info t="Linha reta / desvio" v={e.reta_km == null ? "—" : `${num(e.reta_km)} km · ${e.desvio == null ? "—" : `${num(e.desvio)}x`}`} />
+          <div title={e.esparso ? "poucos pontos de GPS" : ""}><Info t="Linha reta / desvio" v={e.reta_km == null ? "—" : `${num(e.reta_km)} km · ${e.desvio == null ? "—" : `${num(e.desvio)}x`}`} /></div>
         </div>
 
         {/* Espaços reservados para os próximos cartões */}

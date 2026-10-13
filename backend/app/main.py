@@ -455,26 +455,42 @@ def distancia_viagem(numero, unique_id, de, ate):
     if numero in _cache_pos: _cache_km[numero] = km   # só guarda quando as posições também foram guardadas
     return km
 
+MIN_PONTOS = 6            # abaixo disso o trajeto é "esparso": desvio não é confiável
+GAP_SEG = 120             # intervalo entre posições acima de 2 min = sem sinal (ou parado)
+PARADO_KMH = 3            # abaixo de 3 km/h entre dois pontos = parado
+
 def metricas_gps(pts, destino=None):
-    """Indicadores da viagem a partir das posições: distância, velocidades, tempo parado e desvio."""
+    """Indicadores da viagem a partir das posições: distância, velocidades, tempo parado e desvio.
+    (velocidades das posições já chegam em km/h: o Traccar manda em nós e convertemos com x1,852)"""
     if not pts or len(pts) < 2: return None
     t = [datetime.fromisoformat(str(p[3]).replace("Z", "+00:00")) for p in pts]
     dist = sum(haversine_km(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
     horas = max((t[-1] - t[0]).total_seconds() / 3600, 1e-9)
-    # parado = trechos entre posições com velocidade < 3 km/h; conta paradas que somam mais de 1 min seguidas
-    parado, paradas, trecho = 0.0, 0, 0.0
+    vel_media = dist / horas
+    parado = sem_sinal = trecho = 0.0
+    paradas, vel_trecho_max = 0, 0.0
     for i in range(len(pts) - 1):
         dt = (t[i + 1] - t[i]).total_seconds()
-        if pts[i][2] < 3:
+        if dt <= 0: continue
+        km = haversine_km(pts[i], pts[i + 1])
+        v = km / (dt / 3600)                                      # velocidade média do trecho entre dois pontos
+        if dt >= 5 and v < 150: vel_trecho_max = max(vel_trecho_max, v)   # ignora saltos de GPS impossíveis
+        if v < PARADO_KMH:                                        # não andou nada entre os dois pontos
             parado += dt; trecho += dt
+            if dt > GAP_SEG: sem_sinal += dt                      # buraco longo sem posições: "sem sinal/parado"
         else:
             paradas += trecho > 60; trecho = 0.0
     paradas += trecho > 60
+    # velocidade máxima: o maior entre o que o aparelho informou e o calculado entre pontos; nunca menor que a média
+    vel_max = max(max(p[2] for p in pts), vel_trecho_max, vel_media)
     fim = destino if destino and destino[0] is not None else pts[-1]
     reta = haversine_km(pts[0], fim)   # distância em linha reta da saída até o cliente
-    return {"dist_km": round(dist, 2), "vel_media": round(dist / horas, 1), "vel_max": max(p[2] for p in pts),
-            "parado_min": round(parado / 60, 1), "paradas": int(paradas), "reta_km": round(reta, 2),
-            "desvio": round(dist / reta, 2) if reta > 0.05 else None}   # 1,0 = foi reto; 1,5 = rodou 50% a mais
+    # desvio só faz sentido com pontos suficientes e quando o trajeto foi maior que a linha reta
+    esparso = len(pts) < MIN_PONTOS or dist < reta
+    return {"dist_km": round(dist, 2), "vel_media": round(vel_media, 1), "vel_max": round(vel_max, 1),
+            "parado_min": round(parado / 60, 1), "paradas": int(paradas), "sem_sinal_min": round(sem_sinal / 60, 1),
+            "reta_km": round(reta, 2), "pontos": len(pts), "esparso": esparso,
+            "desvio": None if esparso or reta <= 0.05 else round(dist / reta, 2)}   # 1,0 = foi reto; 1,5 = rodou 50% a mais
 
 @app.get("/entrega/{numero}/posicao")
 def posicao(numero: str):
@@ -772,6 +788,7 @@ def gerente_entregas(de: date | None = None, ate: date | None = None, u=Depends(
             # indicadores de GPS (None quando não há posições)
             "dist_km": g.get("dist_km"), "vel_media": g.get("vel_media"), "vel_max": g.get("vel_max"),
             "parado_min": g.get("parado_min"), "paradas": g.get("paradas"), "reta_km": g.get("reta_km"), "desvio": g.get("desvio"),
+            "sem_sinal_min": g.get("sem_sinal_min"), "pontos": g.get("pontos"), "esparso": g.get("esparso"),
         })
     c2.close()
     return {"de": de, "ate": ate, "metas": {"loja": META_LOJA, "rota": META_ROTA, "porta": META_PORTA, "total": META_TOTAL}, "entregas": saida}
