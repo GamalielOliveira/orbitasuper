@@ -418,3 +418,26 @@ def quadro(u=Depends(qualquer_funcionario)):
         for x in r:
             col[mapa[x.status]].append(dict(x._mapping))
         return col
+
+# ---------------- Área do gerente · passo 1: resumo do dia ----------------
+@app.get("/gerente/resumo")
+def gerente_resumo(u=Depends(exige("gerente"))):  # só crachá de gerente entra (outros recebem 403)
+    # "Hoje" no horário de São Paulo: da meia-noite local até agora
+    hoje = "(p.criado_em AT TIME ZONE 'America/Sao_Paulo')::date = (now() AT TIME ZONE 'America/Sao_Paulo')::date"
+    with engine.connect() as c:
+        # 1) Quantos pedidos de hoje estão em cada status
+        contagem = {s: 0 for s in ("aguardando_pagamento", "pago", "em_separacao", "pronto", "em_rota", "entregue", "expirado")}
+        for r in c.execute(text(f"SELECT p.status, COUNT(*) AS n FROM pedidos p WHERE {hoje} GROUP BY p.status")):
+            chave = "em_rota" if r.status in ("atribuido", "a_caminho", "chegou") else r.status  # junta as etapas da rua
+            contagem[chave] = contagem.get(chave, 0) + r.n
+        # 2) Faturamento: soma do total dos pedidos entregues hoje
+        faturamento = c.execute(text(f"SELECT COALESCE(SUM(p.total), 0) FROM pedidos p WHERE {hoje} AND p.status = 'entregue'")).scalar()
+        # 3) Lista dos pedidos de hoje, mais novos primeiro, com nomes de quem separou e entregou
+        pedidos = c.execute(text(f"""
+            SELECT p.numero, p.status, p.cliente, p.bairro, p.total, p.criado_em,
+                   fs.nome AS separador, fe.nome AS entregador
+            FROM pedidos p
+            LEFT JOIN funcionarios fs ON fs.matricula = p.separador
+            LEFT JOIN funcionarios fe ON fe.matricula = p.entregador
+            WHERE {hoje} ORDER BY p.criado_em DESC"""))
+        return {"contagem": contagem, "faturamento": faturamento, "pedidos": [dict(x._mapping) for x in pedidos]}
