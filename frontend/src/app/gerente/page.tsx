@@ -63,8 +63,8 @@ export default function Gerente() {
   const consulta = periodo === "hoje" ? "" : periodo === "ontem" ? `?de=${diaSP(-1)}&ate=${diaSP(-1)}`
     : periodo === "7d" ? `?de=${diaSP(-6)}&ate=${diaSP()}` : `?de=${de}&ate=${ate}`;
   const [erroPer, setErroPer] = useState("");
-  // Aba atual: visão geral, entregas (análise) ou pedidos (tabela completa)
-  const [aba, setAba] = useState<"geral" | "entregas" | "pedidos">("geral");
+  // Aba atual: visão geral (cartões + pedidos), entregas (análise) ou entregadores
+  const [aba, setAba] = useState<"geral" | "entregas" | "entregadores">("geral");
   const [ordemEnt, setOrdemEnt] = useState<{ col: ColEnt; asc: boolean }>({ col: "entregas", asc: false }); // ordenação da tabela de entregadores
   const [ordem, setOrdem] = useState<{ col: Coluna; asc: boolean }>({ col: "criado_em", asc: false });
 
@@ -148,7 +148,7 @@ export default function Gerente() {
 
           {/* Abas: separam os assuntos para a tela não ficar poluída (o período vale para todas) */}
           <div className="mb-4 flex gap-1 border-b">
-            {([["geral", "Visão geral"], ["entregas", "Entregas"], ["pedidos", "Pedidos"]] as const).map(([k, nome]) => (
+            {([["geral", "Visão geral"], ["entregas", "Entregas"], ["entregadores", "Entregadores"]] as const).map(([k, nome]) => (
               <button key={k} onClick={() => setAba(k)}
                 className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${aba === k ? "border-slate-800 text-slate-900" : "border-transparent text-gray-500 hover:text-gray-800"}`}>{nome}</button>))}
           </div>
@@ -184,50 +184,14 @@ export default function Gerente() {
             </div>
           </div>
 
-          {/* Entregadores: desempenho de cada um no período (clique no cabeçalho para ordenar) */}
-          <h2 className="mb-2 font-bold">Entregadores <span className="text-sm font-normal text-gray-500">· {rotulo}</span></h2>
-          <div className="mb-4 overflow-x-auto rounded-xl bg-white shadow">
-            <table className="w-full whitespace-nowrap text-sm">
-              <thead className="bg-gray-50 text-left text-gray-500">
-                <tr>
-                  {([["nome", "Entregador"], ["entregas", "Entregas"], ["rota", "Rota média"], ["porta", "Porta média"], ["total", "Total médio"],
-                    ["atrasos", "Atrasos"], ["no_prazo_pct", "No prazo"], ["distancia_km", "Distância"]] as [ColEnt, string][]).map(([c, nome]) => (
-                    <th key={c} onClick={() => setOrdemEnt(o => ({ col: c, asc: o.col === c ? !o.asc : c === "nome" }))} className="cursor-pointer select-none px-3 py-2 hover:text-gray-900">
-                      {nome}{ordemEnt.col === c ? (ordemEnt.asc ? " ▲" : " ▼") : ""}
-                    </th>))}
-                  <th className="px-3 py-2">Agora</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...resumo.entregadores].sort((a, b) => {
-                  const x = a[ordemEnt.col], y = b[ordemEnt.col];
-                  if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; // vazios no fim
-                  return (x < y ? -1 : x > y ? 1 : 0) * (ordemEnt.asc ? 1 : -1);
-                }).map(e => (
-                  <tr key={e.matricula} className="border-t">
-                    <td className="px-3 py-2 font-semibold">{e.nome} <span className="text-xs font-normal text-gray-400">{e.matricula}</span></td>
-                    <td className="px-3 text-center">{e.entregas}</td>
-                    <td className={`px-3 font-mono ${corCel(e.rota, METAS.rota)}`}>{mmss(e.rota)}</td>
-                    <td className={`px-3 font-mono ${corCel(e.porta, METAS.porta)}`}>{mmss(e.porta)}</td>
-                    <td className={`px-3 font-mono ${corCel(e.total, METAS.total)}`}>{mmss(e.total)}</td>
-                    <td className={`px-3 text-center ${e.atrasos ? "font-bold text-red-700" : ""}`}>{e.atrasos}</td>
-                    <td className="px-3">{e.no_prazo_pct == null ? "—" : `${e.no_prazo_pct}%`}</td>
-                    <td className="px-3">{e.distancia_km == null ? "—" : `${e.distancia_km.toLocaleString("pt-BR")} km`}</td>
-                    <td className="px-3">{e.pedido_atual
-                      ? <span className="rounded-full bg-purple-100 px-2 py-0.5 text-purple-800">🛵 em rota · {e.pedido_atual}</span>
-                      : <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-800">disponível</span>}</td>
-                  </tr>))}
-                {!resumo.entregadores.length && <tr><td colSpan={9} className="p-4 text-center text-gray-400">Nenhum entregador cadastrado.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-
           </>)}
 
           {/* Aba Entregas: componente próprio (arquivo Entregas.tsx) */}
           {aba === "entregas" && <Entregas token={user.token} consulta={consulta} />}
 
-          {aba === "pedidos" && (<>
+          {aba === "geral" && (<>
+          {/* Pedidos do período (filtros + tabela) logo abaixo dos cartões */}
+          <h2 className="mb-2 font-bold">Pedidos <span className="text-sm font-normal text-gray-500">· {rotulo}</span></h2>
           {/* Barra de filtros */}
           <div className="mb-2 flex flex-wrap items-center gap-3 rounded-xl bg-white p-3 text-sm shadow">
             <select value={fStatus} onChange={e => setFStatus(e.target.value)} className="rounded-lg bg-gray-100 px-2 py-2">
@@ -296,6 +260,48 @@ export default function Gerente() {
                 </tfoot>)}
             </table>
           </div>
+          </>)}
+
+          {/* Aba Entregadores: desempenho de cada entregador no período */}
+          {aba === "entregadores" && (<>
+          {/* Entregadores: desempenho de cada um no período (clique no cabeçalho para ordenar) */}
+          <h2 className="mb-2 font-bold">Entregadores <span className="text-sm font-normal text-gray-500">· {rotulo}</span></h2>
+          <div className="mb-4 overflow-x-auto rounded-xl bg-white shadow">
+            <table className="w-full whitespace-nowrap text-sm">
+              <thead className="bg-gray-50 text-left text-gray-500">
+                <tr>
+                  {([["nome", "Entregador"], ["entregas", "Entregas"], ["rota", "Rota média"], ["porta", "Porta média"], ["total", "Total médio"],
+                    ["atrasos", "Atrasos"], ["no_prazo_pct", "No prazo"], ["distancia_km", "Distância"]] as [ColEnt, string][]).map(([c, nome]) => (
+                    <th key={c} onClick={() => setOrdemEnt(o => ({ col: c, asc: o.col === c ? !o.asc : c === "nome" }))} className="cursor-pointer select-none px-3 py-2 hover:text-gray-900">
+                      {nome}{ordemEnt.col === c ? (ordemEnt.asc ? " ▲" : " ▼") : ""}
+                    </th>))}
+                  <th className="px-3 py-2">Agora</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...resumo.entregadores].sort((a, b) => {
+                  const x = a[ordemEnt.col], y = b[ordemEnt.col];
+                  if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; // vazios no fim
+                  return (x < y ? -1 : x > y ? 1 : 0) * (ordemEnt.asc ? 1 : -1);
+                }).map(e => (
+                  <tr key={e.matricula} className="border-t">
+                    <td className="px-3 py-2 font-semibold">{e.nome} <span className="text-xs font-normal text-gray-400">{e.matricula}</span></td>
+                    <td className="px-3 text-center">{e.entregas}</td>
+                    <td className={`px-3 font-mono ${corCel(e.rota, METAS.rota)}`}>{mmss(e.rota)}</td>
+                    <td className={`px-3 font-mono ${corCel(e.porta, METAS.porta)}`}>{mmss(e.porta)}</td>
+                    <td className={`px-3 font-mono ${corCel(e.total, METAS.total)}`}>{mmss(e.total)}</td>
+                    <td className={`px-3 text-center ${e.atrasos ? "font-bold text-red-700" : ""}`}>{e.atrasos}</td>
+                    <td className="px-3">{e.no_prazo_pct == null ? "—" : `${e.no_prazo_pct}%`}</td>
+                    <td className="px-3">{e.distancia_km == null ? "—" : `${e.distancia_km.toLocaleString("pt-BR")} km`}</td>
+                    <td className="px-3">{e.pedido_atual
+                      ? <span className="rounded-full bg-purple-100 px-2 py-0.5 text-purple-800">🛵 em rota · {e.pedido_atual}</span>
+                      : <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-800">disponível</span>}</td>
+                  </tr>))}
+                {!resumo.entregadores.length && <tr><td colSpan={9} className="p-4 text-center text-gray-400">Nenhum entregador cadastrado.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+
           </>)}
         </>)}
       </div>
