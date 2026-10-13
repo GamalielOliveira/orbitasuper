@@ -380,11 +380,14 @@ def haversine_km(a, b):
     h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
     return 2 * 6371 * math.asin(math.sqrt(h))
 
-def distancia_viagem(numero, unique_id, de, ate):
-    """km entre a saída da loja e a entrega; None se não houver Traccar/posições."""
+_cache_pos: dict[str, list] = {}        # numero -> posições da viagem (só para entregas concluídas)
+
+def posicoes_viagem(numero, unique_id, de, ate, final=True):
+    """Posições do Traccar entre a saída e a entrega: [(lat, lon, km/h, horário ISO)]. None se indisponível.
+    Só guarda no cache quando a entrega terminou (final=True); em rota busca de novo."""
     global _traccar_off_ate
-    if numero in _cache_km: return _cache_km[numero]
-    if not de or not ate or time.time() < _traccar_off_ate or not os.environ.get("TRACCAR_URL"): return None
+    if numero in _cache_pos: return _cache_pos[numero]
+    if not unique_id or not de or not ate or time.time() < _traccar_off_ate or not os.environ.get("TRACCAR_URL"): return None
     try:
         if unique_id not in _cache_dev:
             for d in traccar("/api/devices"): _cache_dev[d["uniqueId"]] = d["id"]
@@ -392,13 +395,42 @@ def distancia_viagem(numero, unique_id, de, ate):
         if dev is None: return None
         iso = lambda t: datetime.fromisoformat(str(t)).astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
         pos = traccar(f"/api/positions?deviceId={dev}&from={iso(de)}&to={iso(ate)}")
-        pts = [(p["latitude"], p["longitude"]) for p in pos if p.get("valid", True)]
-        km = sum(haversine_km(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
-        _cache_km[numero] = km
-        return km
+        pts = [(p["latitude"], p["longitude"], round(p.get("speed", 0) * 1.852, 1), p.get("fixTime")) for p in pos if p.get("valid", True)]
+        if final: _cache_pos[numero] = pts
+        return pts
     except Exception:
-        _traccar_off_ate = time.time() + 60
+        _traccar_off_ate = time.time() + 60   # Traccar fora: espera 60 s antes de tentar de novo
         return None
+
+def distancia_viagem(numero, unique_id, de, ate):
+    """km entre a saída da loja e a entrega; None se não houver Traccar/posições."""
+    if numero in _cache_km: return _cache_km[numero]
+    pts = posicoes_viagem(numero, unique_id, de, ate)
+    if pts is None: return None
+    km = sum(haversine_km(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
+    _cache_km[numero] = km
+    return km
+
+def metricas_gps(pts, destino=None):
+    """Indicadores da viagem a partir das posições: distância, velocidades, tempo parado e desvio."""
+    if not pts or len(pts) < 2: return None
+    t = [datetime.fromisoformat(str(p[3]).replace("Z", "+00:00")) for p in pts]
+    dist = sum(haversine_km(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
+    horas = max((t[-1] - t[0]).total_seconds() / 3600, 1e-9)
+    # parado = trechos entre posições com velocidade < 3 km/h; conta paradas que somam mais de 1 min seguidas
+    parado, paradas, trecho = 0.0, 0, 0.0
+    for i in range(len(pts) - 1):
+        dt = (t[i + 1] - t[i]).total_seconds()
+        if pts[i][2] < 3:
+            parado += dt; trecho += dt
+        else:
+            paradas += trecho > 60; trecho = 0.0
+    paradas += trecho > 60
+    fim = destino if destino and destino[0] is not None else pts[-1]
+    reta = haversine_km(pts[0], fim)   # distância em linha reta da saída até o cliente
+    return {"dist_km": round(dist, 2), "vel_media": round(dist / horas, 1), "vel_max": max(p[2] for p in pts),
+            "parado_min": round(parado / 60, 1), "paradas": int(paradas), "reta_km": round(reta, 2),
+            "desvio": round(dist / reta, 2) if reta > 0.05 else None}   # 1,0 = foi reto; 1,5 = rodou 50% a mais
 
 @app.get("/entrega/{numero}/posicao")
 def posicao(numero: str):
@@ -556,3 +588,64 @@ def gerente_resumo(de: date | None = None, ate: date | None = None, u=Depends(ex
                 "distancia_km": round(sum(kms), 1) if kms else None,
             })
         return {"de": de, "ate": ate, "hoje": hoje_sp, "entregadores": entregadores, "contagem": contagem, "faturamento": faturamento, "pedidos": pedidos, "tempos": tempos}
+
+
+# ---------------- Gerente · análise de entregas ----------------
+DIAS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"]
+
+def faixa_horario(h: int) -> str:
+    """Faixa do dia pelo horário do pedido (São Paulo)."""
+    return "manhã" if 6 <= h < 11 else "almoço" if h < 14 and h >= 11 else "tarde" if 14 <= h < 18 else "noite"
+
+def periodo_sp(de, ate):
+    """Mesmas regras do resumo: dias de São Paulo, inclusivo, padrão hoje, máximo 31 dias."""
+    hoje_sp = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    ate = ate or (de or hoje_sp); de = de or ate
+    if de > ate: raise HTTPException(422, "'de' não pode ser depois de 'ate'")
+    if (ate - de).days > 30: raise HTTPException(422, "Período máximo de 31 dias")
+    return de, ate
+
+@app.get("/gerente/entregas")
+def gerente_entregas(de: date | None = None, ate: date | None = None, u=Depends(exige("gerente"))):
+    """Uma linha por entrega (entregue ou em rota) no período, com tempos e indicadores de GPS."""
+    de, ate = periodo_sp(de, ate)
+    with engine.connect() as c:
+        rows = c.execute(text("""
+            SELECT p.numero, p.status, p.cliente, p.bairro, p.criado_em, p.saiu_em, p.chegou_em, p.entregue_em,
+                   p.lat::float AS lat, p.lon::float AS lon, f.nome AS entregador, f.device_id,
+                   EXTRACT(HOUR FROM p.criado_em AT TIME ZONE 'America/Sao_Paulo')::int AS hora,
+                   EXTRACT(DOW FROM p.criado_em AT TIME ZONE 'America/Sao_Paulo')::int AS dow,
+                   EXTRACT(EPOCH FROM p.saiu_em - p.criado_em)::int     AS loja,
+                   EXTRACT(EPOCH FROM p.chegou_em - p.saiu_em)::int     AS rota,
+                   EXTRACT(EPOCH FROM p.entregue_em - p.chegou_em)::int AS porta,
+                   EXTRACT(EPOCH FROM COALESCE(p.entregue_em, now()) - p.criado_em)::int AS total
+            FROM pedidos p LEFT JOIN funcionarios f ON f.matricula = p.entregador
+            WHERE (p.criado_em AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN :de AND :ate
+              AND p.status IN ('entregue', 'a_caminho', 'chegou')
+            ORDER BY p.criado_em DESC"""), {"de": de, "ate": ate}).all()
+    saida = []
+    for r in rows:
+        final = r.status == "entregue"
+        pts = posicoes_viagem(r.numero, r.device_id, r.saiu_em, r.entregue_em or datetime.now(ZoneInfo("UTC")), final=final)
+        g = metricas_gps(pts, (r.lat, r.lon)) or {}
+        saida.append({
+            "numero": r.numero, "status": r.status, "cliente": r.cliente, "bairro": r.bairro, "entregador": r.entregador,
+            "criado_em": r.criado_em, "dia_semana": DIAS[r.dow], "faixa": faixa_horario(r.hora),
+            "loja": r.loja, "rota": r.rota, "porta": r.porta, "total": r.total, "em_rota": not final,
+            "no_prazo": (r.total <= META_TOTAL) if final else None, "atrasado": r.total > META_TOTAL,
+            # indicadores de GPS (None quando não há posições)
+            "dist_km": g.get("dist_km"), "vel_media": g.get("vel_media"), "vel_max": g.get("vel_max"),
+            "parado_min": g.get("parado_min"), "paradas": g.get("paradas"), "reta_km": g.get("reta_km"), "desvio": g.get("desvio"),
+        })
+    return {"de": de, "ate": ate, "metas": {"loja": META_LOJA, "rota": META_ROTA, "porta": META_PORTA, "total": META_TOTAL}, "entregas": saida}
+
+@app.get("/gerente/entregas/{numero}/rota")
+def gerente_rota(numero: str, u=Depends(exige("gerente"))):
+    """Pontos do GPS da viagem para desenhar no mapa, mais o pino do cliente."""
+    with engine.connect() as c:
+        r = c.execute(text("""SELECT p.numero, p.status, p.saiu_em, p.entregue_em, p.lat::float AS lat, p.lon::float AS lon, f.device_id
+                              FROM pedidos p LEFT JOIN funcionarios f ON f.matricula = p.entregador WHERE p.numero = :n"""), {"n": numero}).first()
+    if not r: raise HTTPException(404, "Pedido não encontrado")
+    pts = posicoes_viagem(r.numero, r.device_id, r.saiu_em, r.entregue_em or datetime.now(ZoneInfo("UTC")), final=r.status == "entregue") or []
+    return {"cliente": {"lat": r.lat, "lon": r.lon} if r.lat is not None else None,
+            "pontos": [{"lat": p[0], "lon": p[1], "vel": p[2], "t": p[3]} for p in pts]}

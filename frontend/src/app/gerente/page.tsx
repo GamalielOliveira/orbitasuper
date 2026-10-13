@@ -1,6 +1,7 @@
 "use client";
 // Painel do gerente · passo 1: números do dia e lista de pedidos.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Entregas from "./Entregas";
 
 const API = "/api"; // passa pelo Next, que repassa para o backend (funciona também pelo túnel)
 
@@ -62,6 +63,8 @@ export default function Gerente() {
   const consulta = periodo === "hoje" ? "" : periodo === "ontem" ? `?de=${diaSP(-1)}&ate=${diaSP(-1)}`
     : periodo === "7d" ? `?de=${diaSP(-6)}&ate=${diaSP()}` : `?de=${de}&ate=${ate}`;
   const [erroPer, setErroPer] = useState("");
+  // Aba atual: visão geral, entregas (análise) ou pedidos (tabela completa)
+  const [aba, setAba] = useState<"geral" | "entregas" | "pedidos">("geral");
   const [ordemEnt, setOrdemEnt] = useState<{ col: ColEnt; asc: boolean }>({ col: "entregas", asc: false }); // ordenação da tabela de entregadores
   const [ordem, setOrdem] = useState<{ col: Coluna; asc: boolean }>({ col: "criado_em", asc: false });
 
@@ -143,6 +146,14 @@ export default function Gerente() {
             {erroPer && <span className="text-red-600">{erroPer}</span>}
           </div>
 
+          {/* Abas: separam os assuntos para a tela não ficar poluída (o período vale para todas) */}
+          <div className="mb-4 flex gap-1 border-b">
+            {([["geral", "Visão geral"], ["entregas", "Entregas"], ["pedidos", "Pedidos"]] as const).map(([k, nome]) => (
+              <button key={k} onClick={() => setAba(k)}
+                className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${aba === k ? "border-slate-800 text-slate-900" : "border-transparent text-gray-500 hover:text-gray-800"}`}>{nome}</button>))}
+          </div>
+
+          {aba === "geral" && (<>
           {/* Cartões: faturamento + um cartão por status */}
           <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
             <div className="rounded-xl bg-slate-800 p-3 text-white shadow">
@@ -211,6 +222,12 @@ export default function Gerente() {
             </table>
           </div>
 
+          </>)}
+
+          {/* Aba Entregas: componente próprio (arquivo Entregas.tsx) */}
+          {aba === "entregas" && <Entregas token={user.token} consulta={consulta} />}
+
+          {aba === "pedidos" && (<>
           {/* Barra de filtros */}
           <div className="mb-2 flex flex-wrap items-center gap-3 rounded-xl bg-white p-3 text-sm shadow">
             <select value={fStatus} onChange={e => setFStatus(e.target.value)} className="rounded-lg bg-gray-100 px-2 py-2">
@@ -279,6 +296,7 @@ export default function Gerente() {
                 </tfoot>)}
             </table>
           </div>
+          </>)}
         </>)}
       </div>
     </main>);

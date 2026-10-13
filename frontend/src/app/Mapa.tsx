@@ -21,8 +21,8 @@ function leaflet(): Promise<L> {
   return carregando;
 }
 
-export default function Mapa({ pinos, arrastavel, onMover, className = "h-64" }:
-  { pinos: Pino[]; arrastavel?: number; onMover?: (lat: number, lon: number) => void; className?: string }) {
+export default function Mapa({ pinos, arrastavel, onMover, linha, className = "h-64" }:
+  { pinos: Pino[]; arrastavel?: number; onMover?: (lat: number, lon: number) => void; linha?: [number, number][]; className?: string }) {
   const div = useRef<HTMLDivElement>(null);
   const mapa = useRef<L>(null);
   const camada = useRef<L>(null);
@@ -39,6 +39,8 @@ export default function Mapa({ pinos, arrastavel, onMover, className = "h-64" }:
         camada.current = Lf.layerGroup().addTo(mapa.current);
       }
       camada.current.clearLayers();
+      // trajeto (linha azul) quando houver pontos de GPS
+      if (linha && linha.length > 1) Lf.polyline(linha, { color: "#2563eb", weight: 4, opacity: 0.8 }).addTo(camada.current);
       const validos = pinos.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
       validos.forEach((p, i) => {
         const icone = Lf.divIcon({ className: "", iconSize: [22, 22], iconAnchor: [11, 11],
@@ -50,13 +52,13 @@ export default function Mapa({ pinos, arrastavel, onMover, className = "h-64" }:
       const chave = validos.map(p => p.rotulo).join("|") + (arrastavel != null ? "" : validos.map(p => p.lat.toFixed(2) + p.lon.toFixed(2)).join());
       if (validos.length && chave !== enquadrado.current) {
         enquadrado.current = chave;
-        if (validos.length === 1) mapa.current.setView([validos[0].lat, validos[0].lon], 17);
-        else mapa.current.fitBounds(validos.map(p => [p.lat, p.lon]), { padding: [40, 40] });
+        if (validos.length === 1 && !(linha && linha.length > 1)) mapa.current.setView([validos[0].lat, validos[0].lon], 17);
+        else mapa.current.fitBounds([...validos.map(p => [p.lat, p.lon]), ...(linha ?? [])], { padding: [40, 40] });
       }
       setTimeout(() => mapa.current?.invalidateSize(), 50);
     }).catch(() => {});
     return () => { vivo = false; };
-  }, [pinos, arrastavel]);
+  }, [pinos, arrastavel, linha]);
 
   useEffect(() => () => { mapa.current?.remove(); mapa.current = null; }, []);
   return <div ref={div} className={`w-full overflow-hidden rounded-xl border ${className}`} />;
