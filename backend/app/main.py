@@ -912,3 +912,56 @@ def debug_traccar(numero: str, u=Depends(exige("gerente"))):
             "saiu_em": r.saiu_em, "chegou_em": r.chegou_em, "entregue_em": r.entregue_em,
             "traccar_configurado": bool(os.environ.get("TRACCAR_URL")), **info,
             "em_cache": numero in _cache_pos, "primeiro": pts[0] if pts else None, "ultimo": pts[-1] if pts else None}
+
+# ---------------- Gerente · indicadores dos separadores ----------------
+@app.get("/gerente/separadores")
+def gerente_separadores(de: date | None = None, ate: date | None = None, u=Depends(exige("gerente"))):
+    """Por separador no período: pedidos, itens, tempos, faltas, substituições e reembolsos."""
+    de, ate = periodo_sp(de, ate)
+    per = {"de": de, "ate": ate, "meta": META_LOJA}
+    filtro = "(p.criado_em AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN :de AND :ate"
+    with engine.connect() as c:
+        # 1) pedidos separados (separação concluída) no período, com contagem de itens/faltas/substituições
+        pedidos = c.execute(text(f"""
+            SELECT p.numero, p.separador AS mat, p.criado_em, p.reembolso,
+                   EXTRACT(EPOCH FROM p.separacao_fim - p.separacao_inicio)::int AS sep_seg,   -- só a separação
+                   EXTRACT(EPOCH FROM p.saiu_em - p.criado_em)::int AS loja_seg,                -- clique até sair (meta 5 min)
+                   COALESCE(SUM(i.quantidade), 0) AS itens,
+                   COUNT(*) FILTER (WHERE i.status = 'faltando') AS faltas,
+                   COUNT(*) FILTER (WHERE i.status = 'substituido') AS subs
+            FROM pedidos p LEFT JOIN itens_pedido i ON i.pedido_id = p.id
+            WHERE {filtro} AND p.separador IS NOT NULL AND p.separacao_fim IS NOT NULL
+            GROUP BY p.id ORDER BY p.criado_em DESC"""), per).all()
+        # 2) todos os separadores ativos + quem separou no período, com pedido em andamento agora
+        pessoas = c.execute(text("""
+            SELECT f.matricula, f.nome,
+                   (SELECT p2.numero FROM pedidos p2 WHERE p2.separador = f.matricula AND p2.status = 'em_separacao' LIMIT 1) AS em_andamento
+            FROM funcionarios f
+            WHERE (f.funcao = 'separador' AND f.ativo) OR f.matricula = ANY(:mats)
+            ORDER BY f.nome"""), {"mats": list({p.mat for p in pedidos})}).all()
+        # 3) produtos que mais faltaram no período
+        faltas = c.execute(text(f"""
+            SELECT pr.nome, i.sku, COUNT(*) AS vezes, SUM(i.quantidade) AS unidades
+            FROM itens_pedido i JOIN pedidos p ON p.id = i.pedido_id JOIN produtos pr ON pr.sku = i.sku
+            WHERE {filtro} AND i.status = 'faltando'
+            GROUP BY pr.nome, i.sku ORDER BY vezes DESC, unidades DESC LIMIT 5"""), per).all()
+    saida = []
+    for f in pessoas:
+        meus = [p for p in pedidos if p.mat == f.matricula]
+        sep = [p.sep_seg for p in meus if p.sep_seg is not None]
+        loja = [p.loja_seg for p in meus if p.loja_seg is not None]
+        itens = sum(p.itens for p in meus)
+        saida.append({
+            "matricula": f.matricula, "nome": f.nome, "pedidos": len(meus), "itens": itens,
+            "sep_medio": round(sum(sep) / len(sep)) if sep else None,
+            "loja_medio": round(sum(loja) / len(loja)) if loja else None,
+            "itens_min": round(itens / (sum(sep) / 60), 1) if sep and sum(sep) > 0 else None,   # ritmo de separação
+            "faltas": sum(p.faltas for p in meus), "subs": sum(p.subs for p in meus),
+            "reembolso": float(sum(p.reembolso or 0 for p in meus)),
+            "loja_no_prazo_pct": round(100 * sum(1 for s in loja if s <= META_LOJA) / len(loja)) if loja else None,
+            "em_andamento": f.em_andamento,
+            "lista": [{"numero": p.numero, "criado_em": p.criado_em, "itens": p.itens, "sep_seg": p.sep_seg, "loja_seg": p.loja_seg,
+                       "faltas": p.faltas, "subs": p.subs, "reembolso": float(p.reembolso or 0)} for p in meus],
+        })
+    return {"de": de, "ate": ate, "meta_loja": META_LOJA, "separadores": saida,
+            "top_faltas": [{"nome": x.nome, "sku": x.sku, "vezes": x.vezes, "unidades": int(x.unidades)} for x in faltas]}
