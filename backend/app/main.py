@@ -7,14 +7,33 @@ from contextlib import asynccontextmanager
 
 EXPIRA_MIN = int(_os.getenv("EXPIRA_MIN", "15"))  # minutos para pagar
 
+# ---------------- Histórico de estoque ----------------
+# Toda mexida em lotes passa por mover_estoque: altera o saldo e grava uma linha em
+# movimentacoes_estoque com o saldo DEPOIS. Assim dá para saber quem/por que mexeu.
+def registrar_mov(c, lote_id, tipo, quantidade, campo, saldo_q, saldo_r, pedido_id=None, funcionario=None, motivo=None):
+    """Grava uma linha no histórico (tipo: entrada, reserva, liberacao, saida, perda, ajuste)."""
+    c.execute(text("""INSERT INTO movimentacoes_estoque (lote_id, sku, loja_id, tipo, quantidade, campo, saldo_quantidade, saldo_reservado, pedido_id, funcionario, motivo)
+                      SELECT l.id, l.sku, l.loja_id, :t, :q, :c, :sq, :sr, :p, :f, :m FROM lotes l WHERE l.id = :l"""),
+              {"l": lote_id, "t": tipo, "q": quantidade, "c": campo, "sq": saldo_q, "sr": saldo_r, "p": pedido_id, "f": funcionario, "m": motivo})
+
+def mover_estoque(c, lote_id, tipo, qtd, campo, pedido_id=None, funcionario=None, motivo=None):
+    """Soma qtd (com sinal) em lotes.quantidade ou lotes.reservado e registra no histórico."""
+    assert campo in ("quantidade", "reservado")
+    r = c.execute(text(f"UPDATE lotes SET {campo} = {campo} + :q WHERE id = :id RETURNING quantidade, reservado"), {"q": qtd, "id": lote_id}).first()
+    registrar_mov(c, lote_id, tipo, qtd, campo, r.quantidade, r.reservado, pedido_id, funcionario, motivo)
+
+def liberar_reservas(c, pedido_id, motivo):
+    """Devolve ao estoque livre tudo o que o pedido ainda tem reservado (itens não faltando)."""
+    for i in c.execute(text("SELECT lote_id, quantidade FROM itens_pedido WHERE pedido_id = :p AND status <> 'faltando'"), {"p": pedido_id}).all():
+        mover_estoque(c, i.lote_id, "liberacao", -i.quantidade, "reservado", pedido_id, motivo=motivo)
+
 def expirar_pedidos(minutos: int = EXPIRA_MIN) -> list[str]:
     """Pedidos aguardando pagamento há mais de N minutos: libera estoque e marca 'expirado'."""
     with engine.begin() as c:
         ids = c.execute(text("""SELECT id, numero FROM pedidos WHERE status='aguardando_pagamento'
                                 AND criado_em < now() - make_interval(mins => :m) FOR UPDATE SKIP LOCKED"""), {"m": minutos}).all()
         for p in ids:
-            c.execute(text("""UPDATE lotes l SET reservado = l.reservado - i.quantidade
-                              FROM itens_pedido i WHERE i.lote_id = l.id AND i.pedido_id = :id"""), {"id": p.id})
+            liberar_reservas(c, p.id, "pedido expirou sem pagamento")
             c.execute(text("UPDATE pedidos SET status='expirado' WHERE id=:id"), {"id": p.id})
             c.execute(text("UPDATE pagamentos SET status='expirado', atualizado_em=now() WHERE pedido_id=:id AND status='pendente'"), {"id": p.id})
         return [p.numero for p in ids]
@@ -140,7 +159,7 @@ def criar_pedido(p: PedidoIn):
             for lote in lotes:
                 if falta == 0: break
                 pega = min(falta, lote.livre)
-                c.execute(text("UPDATE lotes SET reservado = reservado + :q WHERE id = :id"), {"q": pega, "id": lote.id})
+                mover_estoque(c, lote.id, "reserva", pega, "reservado", pid, motivo="pedido criado")
                 c.execute(text("INSERT INTO itens_pedido (pedido_id, sku, quantidade, preco_unitario, lote_id) VALUES (:p, :s, :q, :pr, :l)"),
                           {"p": pid, "s": item.sku, "q": pega, "pr": lote.preco, "l": lote.id})
                 total += pega * lote.preco
@@ -197,8 +216,7 @@ def webhook_pagamento(aviso: dict):
         else:
             c.execute(text("UPDATE pagamentos SET status='recusado', atualizado_em=now() WHERE id=:id"), {"id": pg.id})
             ok = c.execute(text("UPDATE pedidos SET status='pagamento_recusado' WHERE id=:id AND status='aguardando_pagamento' RETURNING id"), {"id": pg.pedido_id}).first()
-            if ok: c.execute(text("""UPDATE lotes l SET reservado = l.reservado - i.quantidade
-                              FROM itens_pedido i WHERE i.lote_id = l.id AND i.pedido_id = :id"""), {"id": pg.pedido_id})
+            if ok: liberar_reservas(c, pg.pedido_id, "pagamento recusado")
     return {"ok": True}
 
 @app.get("/pedidos/{numero}")
@@ -289,13 +307,14 @@ def concluir(numero: str, itens: list[ItemSep], u=Depends(exige("separador"))):
                                          WHERE l.sku=:s AND l.quantidade-l.reservado>=:q
                                          ORDER BY l.validade NULLS LAST FOR UPDATE OF l LIMIT 1"""), {"s": it.substituto_sku, "q": orig.quantidade}).first()
                 if lote:
-                    c.execute(text("UPDATE lotes SET reservado=reservado+:q WHERE id=:id"), {"q": orig.quantidade, "id": lote.id})
+                    mover_estoque(c, lote.id, "reserva", orig.quantidade, "reservado", p.id, u["sub"], f"substituto de item {it.id}")
                     novo_lote = lote.id
                     preco = min(orig.preco_unitario, lote.preco)  # cliente nunca paga mais pelo substituto
                 else:
                     st = "faltando"  # substituto sem saldo vira falta
             if st in ("faltando", "substituido"):
-                c.execute(text("UPDATE lotes SET reservado=reservado-:q WHERE id=:id"), {"q": orig.quantidade, "id": orig.lote_id})
+                mover_estoque(c, orig.lote_id, "liberacao", -orig.quantidade, "reservado", p.id, u["sub"],
+                              "item em falta" if st == "faltando" else "trocado por substituto")
             if st == "faltando": faltas += 1
             c.execute(text("UPDATE itens_pedido SET status=:st, substituto_sku=:sub, lote_id=:l, preco_unitario=:pr WHERE id=:id"),
                       {"st": st, "sub": it.substituto_sku if st == "substituido" else None, "l": novo_lote, "pr": preco, "id": it.id})
@@ -375,8 +394,10 @@ def entreguei(numero: str, u=Depends(exige("entregador"))):
         ok = c.execute(text("""UPDATE pedidos SET status='entregue', entregue_em=now(), chegou_em=COALESCE(chegou_em, now())
                                WHERE numero=:n AND entregador=:m AND status IN ('a_caminho','chegou') RETURNING id"""), {"n": numero, "m": u["sub"]}).first()
         if not ok: raise HTTPException(409, "Pedido não está a caminho com você")
-        c.execute(text("""UPDATE lotes l SET quantidade = l.quantidade - i.quantidade, reservado = l.reservado - i.quantidade
-                          FROM itens_pedido i WHERE i.lote_id = l.id AND i.pedido_id = :id AND i.status IN ('separado','substituido')"""), {"id": ok.id})
+        # entregue: sai do estoque físico e solta a reserva (duas linhas no histórico)
+        for i in c.execute(text("SELECT lote_id, quantidade FROM itens_pedido WHERE pedido_id=:id AND status IN ('separado','substituido')"), {"id": ok.id}).all():
+            mover_estoque(c, i.lote_id, "saida", -i.quantidade, "quantidade", ok.id, u["sub"], "entregue ao cliente")
+            mover_estoque(c, i.lote_id, "liberacao", -i.quantidade, "reservado", ok.id, u["sub"], "entregue ao cliente")
         c.execute(text("UPDATE funcionarios SET disponivel=true WHERE matricula=:m"), {"m": u["sub"]})
         return resumo_entrega(c, numero)
 
