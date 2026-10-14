@@ -13,7 +13,8 @@ type Entrega = {
   rota_esperada: number | null; delta_rota: number | null; delta_pct: number | null;
   dist_km: number | null; vel_media: number | null; vel_max: number | null; parado_min: number | null; paradas: number | null; reta_km: number | null; desvio: number | null;
   sem_sinal_min: number | null; pontos: number | null; esparso: boolean | null;
-  motivo: { codigo: string; rotulo: string; explicacao: string; fatores: string[]; mostrar: boolean };
+  motivo: { codigo: string; rotulo: string; explicacao: string; fatores: string[]; mostrar: boolean; informado: boolean };
+  ocorrencias: { tipo: string; rotulo: string; texto: string | null; criado_em: string; entregador: string | null }[];
 };
 type Col = "numero" | "criado_em" | "dia_semana" | "faixa" | "cliente" | "bairro" | "entregador" | "chuva" | "rota" | "rota_esperada" | "delta_rota" | "porta" | "total" | "dist_km" | "vel_media" | "parado_min";
 
@@ -27,7 +28,7 @@ const corBarra = (s: number | null, meta: number) => s == null ? "bg-gray-300" :
 const FAIXAS = ["manhã", "almoço", "tarde", "noite"];
 const ESTACOES = ["verão", "outono", "inverno", "primavera"];
 // Cor do selo de motivo
-const corMotivo = (c: string) => c === "ok" ? "bg-green-100 text-green-800" : c === "separacao_lenta" ? "bg-blue-100 text-blue-800"
+const corMotivo = (c: string) => c.startsWith("informado_") ? "bg-rose-100 text-rose-800" : c === "ok" ? "bg-green-100 text-green-800" : c === "separacao_lenta" ? "bg-blue-100 text-blue-800"
   : c === "porta" ? "bg-purple-100 text-purple-800" : c === "sem_sinal" ? "bg-gray-200 text-gray-700" : "bg-orange-100 text-orange-800";
 // Diferença de rota (real - esperado) com sinal: "+2:10" / "-0:40"
 const delta = (s: number | null) => s == null ? "—" : `${s < 0 ? "-" : "+"}${mmss(Math.abs(s))}`;
@@ -128,7 +129,7 @@ export default function Entregas({ token, consulta }: { token: string; consulta:
                 <td className="px-2 text-right" title={e.sem_sinal_min ? `inclui ${num(e.sem_sinal_min)} min sem sinal/parado` : ""}>{num(e.parado_min, " min")}{e.sem_sinal_min ? <span className="text-gray-400"> ⚠</span> : null}</td>
                 <td className="px-2 text-center">{e.em_rota ? "🛵" : e.no_prazo ? "✅" : "⏰"}</td>
                 {/* selo só quando atrasou ou a rota passou 20% do esperado; senão fica em branco */}
-                <td className="px-2">{e.motivo.mostrar && <span title={e.motivo.explicacao} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${corMotivo(e.motivo.codigo)}`}>{e.motivo.rotulo}</span>}</td>
+                <td className="px-2">{e.motivo.mostrar && <span title={e.motivo.explicacao} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${corMotivo(e.motivo.codigo)}`}>{e.motivo.informado && "🗣 "}{e.motivo.rotulo}</span>}</td>
               </tr>
               {aberto === e.numero && <tr><td colSpan={18} className="bg-gray-50 p-0"><Detalhe e={e} metas={M} token={token} /></td></tr>}
             </Fragment>))}
@@ -203,6 +204,12 @@ function Detalhe({ e, metas, token }: { e: Entrega; metas: Metas; token: string 
             <p><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${corMotivo(e.motivo.codigo)}`}>{e.motivo.rotulo}</span></p>
             <p className="mt-1 text-xs text-gray-600">{e.motivo.explicacao}</p>
             {e.motivo.fatores.length > 0 && <p className="mt-1 text-xs text-gray-500">Também: {e.motivo.fatores.join(" · ")}</p>}
+            {/* Ocorrências avisadas pelo entregador, com horário */}
+            {e.ocorrencias.length > 0 && (
+              <ul className="mt-2 border-t pt-1 text-xs text-gray-700">
+                {e.ocorrencias.map((o, i) => (
+                  <li key={i}>🗣 {new Date(o.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })} · <b>{o.rotulo}</b>{o.texto ? ` — “${o.texto}”` : ""}{o.entregador ? ` (${o.entregador})` : ""}</li>))}
+              </ul>)}
           </div>
         </div>
       </div>

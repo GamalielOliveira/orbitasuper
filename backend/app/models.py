@@ -120,3 +120,13 @@ class ClimaCache(Base):
     chuva_mm: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
     codigo: Mapped[int | None] = mapped_column(SmallInteger)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OcorrenciaEntrega(Base):
+    __tablename__ = "ocorrencias_entrega"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pedido_id: Mapped[int] = mapped_column(ForeignKey("pedidos.id"), index=True)
+    funcionario_id: Mapped[str] = mapped_column(ForeignKey("funcionarios.matricula"))
+    tipo: Mapped[str] = mapped_column(String(20))       # transito, endereco, cliente, chuva, moto, outro
+    texto: Mapped[str | None] = mapped_column(String(200))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -13,6 +13,9 @@ type Ped = {
 type Pos = { lat: number; lon: number; velocidade_kmh: number; atualizado: string };
 
 const fmt = (s: number | null) => s == null ? "—" : s >= 3600 ? `${Math.floor(s / 3600)}h${String(Math.floor(s % 3600 / 60)).padStart(2, "0")}` : `${Math.floor(s / 60)}min ${s % 60}s`;
+// Tipos de problema que o entregador pode avisar
+const PROBLEMAS: [string, string, string][] = [["transito", "🚦", "Trânsito"], ["endereco", "🗺️", "Endereço difícil"], ["cliente", "🚪", "Cliente ausente/demorou"],
+  ["chuva", "🌧️", "Chuva"], ["moto", "🛵", "Problema na moto"], ["outro", "✏️", "Outro"]];
 const brl = (v: number | string) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 export default function Entrega() {
@@ -21,6 +24,9 @@ export default function Entrega() {
   const [ped, setPed] = useState<Ped | null>(null);
   const [prontos, setProntos] = useState(0);
   const [pos, setPos] = useState<Pos | null>(null);
+  const [problema, setProblema] = useState(false);       // painel de "Problema na entrega" aberto?
+  const [textoProb, setTextoProb] = useState("");
+  const [aviso, setAviso] = useState("");                // mensagem rápida de confirmação
   const [placar, setPlacar] = useState<Ped | null>(null);
   const [agora, setAgora] = useState(0); // relógio: preenchido só no navegador (useEffect abaixo)
   // cronômetro ancorado no relógio do servidor (sobrevive a recarga da página)
@@ -61,6 +67,17 @@ export default function Entrega() {
     if (d.status === "entregue") { setPlacar(d); setPed(null); ancorar(null); }
     else { setPed(d); ancorar(d); }
     atualizar();
+  }
+
+  // Envia a ocorrência (pode ser mais de uma por entrega)
+  async function avisar(tipo: string) {
+    if (!ped) return;
+    const r = await fetch(`${API}/entrega/${ped.numero}/ocorrencia`, { method: "POST", headers: { ...h(), "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo, texto: textoProb || null }) });
+    const d = await r.json();
+    setProblema(false); setTextoProb("");
+    setAviso(r.ok ? `✅ Avisado: ${d.rotulo}` : `❌ ${d.detail}`);
+    setTimeout(() => setAviso(""), 3000);
   }
 
   const pinos = useMemo(() => {
@@ -135,6 +152,8 @@ export default function Entrega() {
               {ped.status === "atribuido" && <button onClick={() => acao(`/entrega/${ped.numero}/retirei`)} className={`${botao} bg-blue-600`}>📦 Retirei o pedido</button>}
               {ped.status === "a_caminho" && <button onClick={() => acao(`/entrega/${ped.numero}/cheguei`)} className={`${botao} bg-orange-500`}>📍 Cheguei</button>}
               {ped.status === "chegou" && <button onClick={() => acao(`/entrega/${ped.numero}/entreguei`)} className={`${botao} bg-green-600`}>✅ Entreguei</button>}
+              {/* botão secundário, discreto: abre o painel de problemas */}
+              <button onClick={() => setProblema(true)} className="mt-3 w-full rounded-xl border border-gray-300 py-3 text-sm font-semibold text-gray-600 active:bg-gray-100">⚠️ Problema na entrega</button>
             </div>
             <div className="order-2 rounded-xl bg-white p-2 shadow md:p-3">
               {pinos.length ? <Mapa pinos={pinos} className="h-[50vh] md:h-[600px]" /> :
@@ -147,5 +166,26 @@ export default function Entrega() {
           </div>
         )}
       </div>
+
+      {/* Painel que sobe de baixo com as opções grandes de problema */}
+      {problema && ped && (
+        <div className="fixed inset-0 z-[2000] flex items-end justify-center bg-black/40 md:items-center" onClick={() => setProblema(false)}>
+          <div className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-8 md:rounded-3xl" onClick={e => e.stopPropagation()}>
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-gray-300 md:hidden" />
+            <p className="mb-1 text-lg font-bold">Qual o problema?</p>
+            <p className="mb-3 text-sm text-gray-500">{ped.numero} · pode avisar mais de uma vez</p>
+            <input value={textoProb} onChange={e => setTextoProb(e.target.value.slice(0, 200))} placeholder="Detalhe (opcional)" className="mb-3 w-full rounded-xl bg-gray-100 px-3 py-3 outline-none" />
+            <div className="grid grid-cols-2 gap-2">
+              {PROBLEMAS.map(([k, ic, nome]) => (
+                <button key={k} onClick={() => avisar(k)} className="rounded-2xl border-2 border-gray-200 py-4 text-base font-semibold active:scale-95 active:bg-orange-50">
+                  <span className="block text-2xl">{ic}</span>{nome}
+                </button>))}
+            </div>
+            <button onClick={() => setProblema(false)} className="mt-3 w-full py-2 text-sm text-gray-500">Cancelar</button>
+          </div>
+        </div>)}
+
+      {/* Confirmação rápida */}
+      {aviso && <div className="fixed bottom-6 left-1/2 z-[2100] -translate-x-1/2 rounded-full bg-gray-900 px-5 py-3 text-sm text-white shadow-lg">{aviso}</div>}
     </main>);
 }

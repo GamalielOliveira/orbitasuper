@@ -341,6 +341,27 @@ def retirei(numero: str, u=Depends(exige("entregador"))):
         if not ok: raise HTTPException(409, "Pedido não está atribuído a você")
         return resumo_entrega(c, numero)
 
+# ---- Ocorrências: o entregador avisa um problema durante a entrega (pode avisar mais de uma vez) ----
+TIPOS_OCORRENCIA = {"transito": "Trânsito", "endereco": "Endereço difícil", "cliente": "Cliente ausente/demorou",
+                    "chuva": "Chuva", "moto": "Problema na moto", "outro": "Outro"}
+
+class OcorrenciaIn(BaseModel):
+    tipo: str
+    texto: str | None = Field(None, max_length=200)
+
+@app.post("/entrega/{numero}/ocorrencia", status_code=201)
+def registrar_ocorrencia(numero: str, o: OcorrenciaIn, u=Depends(exige("entregador"))):
+    if o.tipo not in TIPOS_OCORRENCIA: raise HTTPException(422, "Tipo de ocorrência inválido")
+    with engine.begin() as c:
+        # só o entregador do pedido, e só enquanto está com ele (retirado, a caminho ou na porta)
+        p = c.execute(text("SELECT id FROM pedidos WHERE numero=:n AND entregador=:m AND status IN ('atribuido','a_caminho','chegou')"),
+                      {"n": numero, "m": u["sub"]}).first()
+        if not p: raise HTTPException(409, "Pedido não está em entrega com você")
+        r = c.execute(text("""INSERT INTO ocorrencias_entrega (pedido_id, funcionario_id, tipo, texto)
+                              VALUES (:p, :f, :t, :x) RETURNING id, criado_em"""),
+                      {"p": p.id, "f": u["sub"], "t": o.tipo, "x": (o.texto or "").strip() or None}).first()
+    return {"id": r.id, "tipo": o.tipo, "rotulo": TIPOS_OCORRENCIA[o.tipo], "criado_em": r.criado_em}
+
 @app.post("/entrega/{numero}/cheguei")
 def cheguei(numero: str, u=Depends(exige("entregador"))):
     with engine.begin() as c:
@@ -769,13 +790,25 @@ def motivo_provavel(e: dict, hora_saida: int) -> dict:
     cands = [c for c in cands if c[0] >= 0.5]          # ignora excessos menores que 30 s
     atencao = e["atrasado"] or (e["delta_pct"] is not None and e["delta_pct"] > 20)   # mostrar o selo na tabela?
     if not cands:
-        return {"codigo": "ok", "rotulo": "Dentro do esperado", "explicacao": "Nenhuma etapa passou da meta.", "fatores": [], "mostrar": False}
+        return com_informado({"codigo": "ok", "rotulo": "Dentro do esperado", "explicacao": "Nenhuma etapa passou da meta.", "fatores": [], "mostrar": False}, e)
     _, cod, rot, exp = cands[0]
     fatores = [f"{c[2]} (+{c[0]:.0f} min)" for c in cands[1:]]
     # contexto que pode ter ajudado no atraso, se não for a causa principal
     if e.get("chuva") and cod != "rota_chuva": fatores.append("Chuva")
     if pico and cod != "pico": fatores.append("Horário de pico")
-    return {"codigo": cod, "rotulo": rot, "explicacao": f"{exp} Excesso de {cands[0][0]:.0f} min.", "fatores": fatores[:2], "mostrar": atencao}
+    return com_informado({"codigo": cod, "rotulo": rot, "explicacao": f"{exp} Excesso de {cands[0][0]:.0f} min.", "fatores": fatores[:2], "mostrar": atencao}, e)
+
+def com_informado(calc: dict, e: dict) -> dict:
+    """Se o entregador informou ocorrência, ela vira o motivo principal e o calculado vira fator."""
+    oc = e.get("ocorrencias") or []
+    if not oc: return {**calc, "informado": False}
+    tipos = [o["tipo"] for o in oc]
+    principal = max(set(tipos), key=lambda t: (tipos.count(t), tipos[::-1].index(t) * -1))   # mais informado (empate: o mais recente)
+    texto = next((o["texto"] for o in reversed(oc) if o["tipo"] == principal and o["texto"]), None)
+    fatores = ([calc["rotulo"]] if calc["codigo"] != "ok" else []) + [TIPOS_OCORRENCIA[t] for t in dict.fromkeys(tipos) if t != principal]
+    return {"codigo": "informado_" + principal, "rotulo": f"Informado: {TIPOS_OCORRENCIA[principal]}",
+            "explicacao": (f"Entregador: “{texto}”. " if texto else "") + (calc["explicacao"] if calc["codigo"] != "ok" else "Tempos dentro das metas."),
+            "fatores": fatores[:2], "mostrar": True, "informado": True}
 
 @app.get("/gerente/entregas")
 def gerente_entregas(de: date | None = None, ate: date | None = None, u=Depends(exige("gerente"))):
@@ -802,6 +835,15 @@ def gerente_entregas(de: date | None = None, ate: date | None = None, u=Depends(
     saida = []
     climas: dict = {}                      # cache local desta requisição (vários pedidos na mesma hora/lugar)
     c2 = engine.connect()
+    # ocorrências informadas pelos entregadores, agrupadas por pedido (uma consulta só)
+    ocorr: dict = {}
+    if rows:
+        for o in c2.execute(text("""SELECT p.numero, o.tipo, o.texto, o.criado_em, f.nome AS entregador
+                                    FROM ocorrencias_entrega o JOIN pedidos p ON p.id = o.pedido_id
+                                    LEFT JOIN funcionarios f ON f.matricula = o.funcionario_id
+                                    WHERE p.numero = ANY(:ns) ORDER BY o.criado_em"""), {"ns": [r.numero for r in rows]}):
+            ocorr.setdefault(o.numero, []).append({"tipo": o.tipo, "rotulo": TIPOS_OCORRENCIA.get(o.tipo, o.tipo),
+                                                    "texto": o.texto, "criado_em": o.criado_em, "entregador": o.entregador})
     for r in rows:
         final = r.status == "entregue"
         pts = posicoes_viagem(r.numero, r.device_id, r.saiu_em, r.entregue_em or datetime.now(ZoneInfo("UTC")), final=final)
@@ -834,6 +876,7 @@ def gerente_entregas(de: date | None = None, ate: date | None = None, u=Depends(
             "parado_min": g.get("parado_min"), "paradas": g.get("paradas"), "reta_km": g.get("reta_km"), "desvio": g.get("desvio"),
             "sem_sinal_min": g.get("sem_sinal_min"), "pontos": g.get("pontos"), "esparso": g.get("esparso"),
         })
+        saida[-1]["ocorrencias"] = ocorr.get(r.numero, [])
         saida[-1]["motivo"] = motivo_provavel(saida[-1], r.hora_saida)
     c2.close()
     return {"de": de, "ate": ate, "metas": {"loja": META_LOJA, "rota": META_ROTA, "porta": META_PORTA, "total": META_TOTAL}, "entregas": saida}
