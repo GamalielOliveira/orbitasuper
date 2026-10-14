@@ -1,7 +1,8 @@
 "use client";
 // Painel do gerente · passo 1: números do dia e lista de pedidos.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Entregas from "./Entregas";
+import Entregas, { type FiltroEntregas } from "./Entregas";
+import Padroes from "./Padroes";
 
 const API = "/api"; // passa pelo Next, que repassa para o backend (funciona também pelo túnel)
 
@@ -71,7 +72,9 @@ export default function Gerente() {
     : periodo === "7d" ? `?de=${somaDias(hoje, -6)}&ate=${hoje}` : `?de=${de}&ate=${ate}`;
   const [erroPer, setErroPer] = useState("");
   // Aba atual: visão geral (cartões + pedidos), entregas (análise) ou entregadores
-  const [aba, setAba] = useState<"geral" | "entregas" | "entregadores">("geral");
+  const [aba, setAba] = useState<"geral" | "entregas" | "padroes" | "entregadores">("geral");
+  // filtro levado da aba Padrões para a aba Entregas (o "versao" força a tabela a reaplicar)
+  const [filtroEnt, setFiltroEnt] = useState<{ f: FiltroEntregas; versao: number }>({ f: {}, versao: 0 });
   const [ordemEnt, setOrdemEnt] = useState<{ col: ColEnt; asc: boolean }>({ col: "entregas", asc: false }); // ordenação da tabela de entregadores
   const [ordem, setOrdem] = useState<{ col: Coluna; asc: boolean }>({ col: "criado_em", asc: false });
 
@@ -155,8 +158,8 @@ export default function Gerente() {
 
           {/* Abas: separam os assuntos para a tela não ficar poluída (o período vale para todas) */}
           <div className="mb-4 flex gap-1 border-b">
-            {([["geral", "Visão geral"], ["entregas", "Entregas"], ["entregadores", "Entregadores"]] as const).map(([k, nome]) => (
-              <button key={k} onClick={() => setAba(k)}
+            {([["geral", "Visão geral"], ["entregas", "Entregas"], ["padroes", "Padrões"], ["entregadores", "Entregadores"]] as const).map(([k, nome]) => (
+              <button key={k} onClick={() => { if (k === "entregas" && aba !== "entregas") setFiltroEnt(x => ({ f: {}, versao: x.versao + 1 })); setAba(k); }}
                 className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${aba === k ? "border-slate-800 text-slate-900" : "border-transparent text-gray-500 hover:text-gray-800"}`}>{nome}</button>))}
           </div>
 
@@ -194,7 +197,11 @@ export default function Gerente() {
           </>)}
 
           {/* Aba Entregas: componente próprio (arquivo Entregas.tsx) */}
-          {aba === "entregas" && <Entregas token={user.token} consulta={consulta} />}
+          {aba === "entregas" && <Entregas key={filtroEnt.versao} token={user.token} consulta={consulta} filtro={filtroEnt.f} />}
+
+          {/* Aba Padrões: onde os atrasos se concentram; clicar num grupo abre Entregas já filtrada */}
+          {aba === "padroes" && <Padroes token={user.token} consulta={consulta} rotulo={rotulo}
+            abrir={f => { setFiltroEnt(x => ({ f, versao: x.versao + 1 })); setAba("entregas"); }} />}
 
           {aba === "geral" && (<>
           {/* Pedidos do período (filtros + tabela) logo abaixo dos cartões */}

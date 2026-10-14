@@ -38,13 +38,16 @@ const corDelta = (pct: number | null) => pct == null ? "" : pct <= 0 ? "text-gre
 const climaTxt = (e: Entrega) => e.clima ? `${e.clima.rotulo} · ${e.clima.temp ?? "—"}°C · chuva ${e.clima.chuva_mm.toLocaleString("pt-BR")} mm` : "Clima ainda não carregado";
 const DIAS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 
-export default function Entregas({ token, consulta }: { token: string; consulta: string }) {
+// Filtro que pode vir de fora (ex.: clique num grupo da aba Padrões)
+export type FiltroEntregas = { entregador?: string; bairro?: string; faixa?: string; dia?: string; chuva?: string; motivo?: string };
+
+export default function Entregas({ token, consulta, filtro = {} }: { token: string; consulta: string; filtro?: FiltroEntregas }) {
   const [dados, setDados] = useState<{ metas: Metas; entregas: Entrega[] } | null>(null);
   // Filtros (ficam no estado: a atualização automática não apaga)
-  const [fEnt, setFEnt] = useState(""); const [fBairro, setFBairro] = useState(""); const [fFaixa, setFFaixa] = useState(""); const [fDia, setFDia] = useState("");
+  const [fEnt, setFEnt] = useState(filtro.entregador ?? ""); const [fBairro, setFBairro] = useState(filtro.bairro ?? ""); const [fFaixa, setFFaixa] = useState(filtro.faixa ?? ""); const [fDia, setFDia] = useState(filtro.dia ?? "");
   const [soAtrasados, setSoAtrasados] = useState(false); const [busca, setBusca] = useState("");
-  const [fMotivo, setFMotivo] = useState(""); // filtro por motivo provável
-  const [fChuva, setFChuva] = useState(""); const [fEstacao, setFEstacao] = useState(""); // filtros de clima
+  const [fMotivo, setFMotivo] = useState(filtro.motivo ?? ""); // filtro por motivo provável
+  const [fChuva, setFChuva] = useState(filtro.chuva ?? ""); const [fEstacao, setFEstacao] = useState(""); // filtros de clima
   const [ordem, setOrdem] = useState<{ col: Col; asc: boolean }>({ col: "criado_em", asc: false });
   const [aberto, setAberto] = useState<string | null>(null); // pedido com o detalhe aberto
 
