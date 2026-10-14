@@ -16,11 +16,18 @@ const mmss = (s: number | null) => s == null ? "—" : `${Math.floor(s / 60)}:${
 const media = (xs: (number | null)[]) => { const v = xs.filter((x): x is number => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
 const ruim = (g: Grupo) => (g.pct != null && g.pct < 70) || (g.delta != null && g.delta > 20);   // destaque vermelho
 
+// Δ do grupo vs esperado: (soma real - soma esperado) / soma esperado, só entregas com previsão válida
+// (média de porcentagens distorce quando uma previsão é muito pequena)
+function deltaGrupo(l: E[]) {
+  const ok = l.filter(e => e.rota != null && e.rota_esperada != null);
+  const esp = ok.reduce((a, e) => a + e.rota_esperada!, 0);
+  return esp ? 100 * ok.reduce((a, e) => a + e.rota! - e.rota_esperada!, 0) / esp : null;
+}
 // Calcula os números de um grupo de entregas concluídas
 function resumir(nome: string, l: E[], filtro?: FiltroEntregas): Grupo {
   const ok = l.filter(e => e.no_prazo).length;
   return { nome, n: l.length, pct: l.length ? Math.round(100 * ok / l.length) : null, rota: media(l.map(e => e.rota)),
-    delta: media(l.map(e => e.delta_pct)), total: media(l.map(e => e.total)), filtro };
+    delta: deltaGrupo(l), total: media(l.map(e => e.total)), filtro };
 }
 // Agrupa por uma chave (entregas sem chave ficam de fora)
 function agrupar(l: E[], chave: (e: E) => string | null, filtro: (k: string) => FiltroEntregas | undefined, ordem?: string[]) {

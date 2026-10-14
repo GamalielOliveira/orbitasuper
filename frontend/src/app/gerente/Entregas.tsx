@@ -10,7 +10,7 @@ type Entrega = {
   dia_semana: string; faixa: string; loja: number | null; rota: number | null; porta: number | null; total: number;
   em_rota: boolean; no_prazo: boolean | null; atrasado: boolean;
   clima: { temp: number | null; chuva_mm: number; rotulo: string; icone: string } | null; chuva: boolean | null; estacao: string;
-  rota_esperada: number | null; delta_rota: number | null; delta_pct: number | null;
+  rota_esperada: number | null; esperado_suspeito: boolean; delta_rota: number | null; delta_pct: number | null;
   dist_km: number | null; vel_media: number | null; vel_max: number | null; parado_min: number | null; paradas: number | null; reta_km: number | null; desvio: number | null;
   sem_sinal_min: number | null; pontos: number | null; esparso: boolean | null;
   motivo: { codigo: string; rotulo: string; explicacao: string; fatores: string[]; mostrar: boolean; informado: boolean };
@@ -123,8 +123,8 @@ export default function Entregas({ token, consulta, filtro = {} }: { token: stri
                 <td className="px-2">{e.entregador ?? "—"}</td>
                 <td className="px-2 text-center" title={climaTxt(e)}>{e.clima ? e.clima.icone : "—"}</td>
                 <td className={`px-2 font-mono ${corCel(e.rota, M.rota)}`}>{mmss(e.rota)}</td>
-                <td className="px-2 font-mono text-gray-600">{mmss(e.rota_esperada)}</td>
-                <td className={`px-2 font-mono ${corDelta(e.delta_pct)}`} title={e.delta_pct == null ? "" : `${e.delta_pct > 0 ? "+" : ""}${e.delta_pct}% vs esperado`}>{delta(e.delta_rota)}</td>
+                <td className="px-2 font-mono text-gray-600" title={e.esperado_suspeito ? "endereço muito perto da loja" : ""}>{mmss(e.rota_esperada)}</td>
+                <td className={`px-2 font-mono ${corDelta(e.delta_pct)}`} title={e.esperado_suspeito ? "endereço muito perto da loja" : e.delta_pct == null ? "" : `${e.delta_pct > 0 ? "+" : ""}${e.delta_pct}% vs esperado`}>{delta(e.delta_rota)}</td>
                 <td className={`px-2 font-mono ${corCel(e.porta, M.porta)}`}>{mmss(e.porta)}</td>
                 <td className={`px-2 font-mono ${corCel(e.total, M.total)}`}>{mmss(e.total)}{e.em_rota && <span className="text-gray-400">…</span>}</td>
                 <td className="px-2 text-right">{num(e.dist_km)}</td>
@@ -145,7 +145,10 @@ export default function Entregas({ token, consulta, filtro = {} }: { token: stri
               <td className="px-2 py-2" colSpan={8}>Média ({linhas.length})</td>
               {(() => { const v = media(linhas.map(e => e.rota)); return <td className={`px-2 font-mono ${corCel(v == null ? null : Math.round(v), M.rota)}`}>{mmss(v == null ? null : Math.round(v))}</td>; })()}
               {(() => { const v = media(linhas.map(e => e.rota_esperada)); return <td className="px-2 font-mono text-gray-600">{mmss(v == null ? null : Math.round(v))}</td>; })()}
-              {(() => { const v = media(linhas.map(e => e.delta_rota)); const p = media(linhas.map(e => e.delta_pct)); return <td className={`px-2 font-mono ${corDelta(p)}`}>{delta(v == null ? null : Math.round(v))}</td>; })()}
+              {(() => { // Δ do conjunto: (soma real - soma esperado) / soma esperado, só entregas com previsão válida
+                const ok = linhas.filter(e => e.rota != null && e.rota_esperada != null); const esp = ok.reduce((a, e) => a + e.rota_esperada!, 0);
+                const dif = ok.reduce((a, e) => a + e.rota! - e.rota_esperada!, 0); const p = esp ? Math.round(100 * dif / esp) : null;
+                return <td className={`px-2 font-mono ${corDelta(p)}`} title={p == null ? "" : `${p > 0 ? "+" : ""}${p}% vs esperado`}>{delta(ok.length ? Math.round(dif / ok.length) : null)}</td>; })()}
               {(["porta", "total"] as const).map(k => { const v = media(linhas.map(e => e[k])); return <td key={k} className={`px-2 font-mono ${corCel(v == null ? null : Math.round(v), M[k])}`}>{mmss(v == null ? null : Math.round(v))}</td>; })}
               <td className="px-2 text-right">{num(media(linhas.map(e => e.dist_km)) == null ? null : +media(linhas.map(e => e.dist_km))!.toFixed(2))}</td>
               <td className="px-2 text-right">{num(media(linhas.map(e => e.vel_media)) == null ? null : +media(linhas.map(e => e.vel_media))!.toFixed(1), " km/h")}</td>
@@ -194,7 +197,7 @@ function Detalhe({ e, metas, token }: { e: Entrega; metas: Metas; token: string 
           <Info t="Distância" v={num(e.dist_km, " km")} />
           <Info t="Vel. média / máx." v={e.vel_media == null ? "—" : `${num(e.vel_media)} / ${num(e.vel_max)} km/h`} />
           <Info t="Parado" v={e.parado_min == null ? "—" : `${num(e.parado_min)} min · ${e.paradas} parada(s) >1 min${e.sem_sinal_min ? ` · ${num(e.sem_sinal_min)} min sem sinal/parado` : ""}`} />
-          <Info t="Rota real × esperada" v={e.rota_esperada == null ? "—" : `${mmss(e.rota)} × ${mmss(e.rota_esperada)} (${e.delta_pct == null ? "—" : `${e.delta_pct > 0 ? "+" : ""}${e.delta_pct}%`})`} />
+          <Info t="Rota real × esperada" v={e.esperado_suspeito ? "— (endereço muito perto da loja)" : e.rota_esperada == null ? "—" : `${mmss(e.rota)} × ${mmss(e.rota_esperada)} (${e.delta_pct == null ? "—" : `${e.delta_pct > 0 ? "+" : ""}${e.delta_pct}%`})`} />
           <div title={e.esparso ? "poucos pontos de GPS" : ""}><Info t="Linha reta / desvio" v={e.reta_km == null ? "—" : `${num(e.reta_km)} km · ${e.desvio == null ? "—" : `${num(e.desvio)}x`}`} /></div>
         </div>
 

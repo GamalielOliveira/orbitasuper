@@ -755,7 +755,8 @@ def pedir(tarefa):
         if len(_fila_ext) < 200: _fila_ext.add(tarefa)
 
 # ---- Motivo provável do atraso: regras simples, ordenadas pelos minutos de excesso ----
-PICOS = [(11, 14), (17, 19)]   # horários de pico (hora de saída da loja)
+PICOS = [(11, 14), (17, 19)]
+ESPERADO_MIN = 60              # previsão OSRM abaixo de 60 s não é confiável (endereço muito perto da loja)   # horários de pico (hora de saída da loja)
 
 def motivo_provavel(e: dict, hora_saida: int) -> dict:
     """Escolhe a causa principal (maior excesso em minutos) e até 2 fatores secundários."""
@@ -862,11 +863,13 @@ def gerente_entregas(de: date | None = None, ate: date | None = None, u=Depends(
         # rota esperada (OSRM) da loja até o cliente
         if r.rota_esperada_seg is None and r.lat is not None and r.loja_lat is not None:
             pedir(("osrm", r.numero, r.loja_lat, r.loja_lon, r.lat, r.lon))
-        esp = r.rota_esperada_seg
+        # previsão abaixo de 1 min = cliente praticamente na loja: não serve de comparação
+        suspeito = r.rota_esperada_seg is not None and r.rota_esperada_seg < ESPERADO_MIN
+        esp = None if suspeito else r.rota_esperada_seg
         delta = (r.rota - esp) if esp is not None and r.rota is not None else None
         saida.append({
             "clima": clima, "chuva": (clima["chuva_mm"] > 0.1) if clima else None, "estacao": estacao(r.dia),
-            "rota_esperada": esp, "delta_rota": delta, "delta_pct": round(100 * delta / esp) if delta is not None and esp else None,
+            "rota_esperada": esp, "esperado_suspeito": suspeito, "delta_rota": delta, "delta_pct": round(100 * delta / esp) if delta is not None and esp else None,
             "numero": r.numero, "status": r.status, "cliente": r.cliente, "bairro": r.bairro, "entregador": r.entregador,
             "criado_em": r.criado_em, "dia_semana": DIAS[r.dow], "faixa": faixa_horario(r.hora),
             "loja": r.loja, "rota": r.rota, "porta": r.porta, "total": r.total, "em_rota": not final,
