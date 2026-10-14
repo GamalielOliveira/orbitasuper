@@ -733,6 +733,50 @@ def pedir(tarefa):
     with _fila_lock:
         if len(_fila_ext) < 200: _fila_ext.add(tarefa)
 
+# ---- Motivo provável do atraso: regras simples, ordenadas pelos minutos de excesso ----
+PICOS = [(11, 14), (17, 19)]   # horários de pico (hora de saída da loja)
+
+def motivo_provavel(e: dict, hora_saida: int) -> dict:
+    """Escolhe a causa principal (maior excesso em minutos) e até 2 fatores secundários."""
+    m = lambda s: s / 60
+    pico = any(a <= hora_saida < b for a, b in PICOS)
+    cands = []   # (excesso em min, código, rótulo, explicação)
+    # 1) Loja: separação + espera pelo entregador acima da meta
+    if e["loja"] is not None and e["loja"] > META_LOJA:
+        cands.append((m(e["loja"] - META_LOJA), "separacao_lenta", "Separação lenta",
+                      f"Pedido levou {m(e['loja']):.0f} min para sair da loja (meta {m(META_LOJA):.0f})."))
+    # 2) Rota: compara com o tempo esperado do OSRM (ou com a meta, se não houver previsão)
+    if e["rota"] is not None:
+        base = e["rota_esperada"] if e["rota_esperada"] else META_ROTA
+        ex = m(e["rota"] - base)
+        if e["rota"] > base * 1.2:   # até 20% acima do esperado ainda é normal
+            ref = f"esperado {m(base):.0f} min" if e["rota_esperada"] else f"meta {m(META_ROTA):.0f} min"
+            if (e.get("sem_sinal_min") or 0) >= 2:
+                cands.append((ex, "sem_sinal", "Sem sinal de GPS", f"Rota de {m(e['rota']):.0f} min ({ref}) com {e['sem_sinal_min']:.0f} min sem posições: parado ou sem sinal."))
+            elif (e.get("parado_min") or 0) >= 3:
+                cands.append((ex, "parada_longa", "Parada longa na rota", f"Rota de {m(e['rota']):.0f} min ({ref}); ficou {e['parado_min']:.0f} min parado."))
+            elif e.get("chuva"):
+                cands.append((ex, "rota_chuva", "Rota acima do esperado (chuva)", f"Rota de {m(e['rota']):.0f} min ({ref}) com chuva de {str(round(e['clima']['chuva_mm'], 1)).replace('.', ',')} mm."))
+            elif pico:
+                cands.append((ex, "pico", "Horário de pico", f"Rota de {m(e['rota']):.0f} min ({ref}) saindo às {hora_saida}h, horário de trânsito."))
+            else:
+                cands.append((ex, "rota_acima", "Rota acima do esperado", f"Rota de {m(e['rota']):.0f} min ({ref})."))
+    # 3) Porta: tempo entre chegar e entregar
+    if e["porta"] is not None and e["porta"] > META_PORTA:
+        cands.append((m(e["porta"] - META_PORTA), "porta", "Cliente demorou na porta",
+                      f"{m(e['porta']):.0f} min entre chegar e entregar (meta {m(META_PORTA):.0f})."))
+    cands.sort(key=lambda c: -c[0])
+    cands = [c for c in cands if c[0] >= 0.5]          # ignora excessos menores que 30 s
+    atencao = e["atrasado"] or (e["delta_pct"] is not None and e["delta_pct"] > 20)   # mostrar o selo na tabela?
+    if not cands:
+        return {"codigo": "ok", "rotulo": "Dentro do esperado", "explicacao": "Nenhuma etapa passou da meta.", "fatores": [], "mostrar": False}
+    _, cod, rot, exp = cands[0]
+    fatores = [f"{c[2]} (+{c[0]:.0f} min)" for c in cands[1:]]
+    # contexto que pode ter ajudado no atraso, se não for a causa principal
+    if e.get("chuva") and cod != "rota_chuva": fatores.append("Chuva")
+    if pico and cod != "pico": fatores.append("Horário de pico")
+    return {"codigo": cod, "rotulo": rot, "explicacao": f"{exp} Excesso de {cands[0][0]:.0f} min.", "fatores": fatores[:2], "mostrar": atencao}
+
 @app.get("/gerente/entregas")
 def gerente_entregas(de: date | None = None, ate: date | None = None, u=Depends(exige("gerente"))):
     """Uma linha por entrega (entregue ou em rota) no período, com tempos e indicadores de GPS."""
@@ -790,6 +834,7 @@ def gerente_entregas(de: date | None = None, ate: date | None = None, u=Depends(
             "parado_min": g.get("parado_min"), "paradas": g.get("paradas"), "reta_km": g.get("reta_km"), "desvio": g.get("desvio"),
             "sem_sinal_min": g.get("sem_sinal_min"), "pontos": g.get("pontos"), "esparso": g.get("esparso"),
         })
+        saida[-1]["motivo"] = motivo_provavel(saida[-1], r.hora_saida)
     c2.close()
     return {"de": de, "ate": ate, "metas": {"loja": META_LOJA, "rota": META_ROTA, "porta": META_PORTA, "total": META_TOTAL}, "entregas": saida}
 

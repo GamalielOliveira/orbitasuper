@@ -13,6 +13,7 @@ type Entrega = {
   rota_esperada: number | null; delta_rota: number | null; delta_pct: number | null;
   dist_km: number | null; vel_media: number | null; vel_max: number | null; parado_min: number | null; paradas: number | null; reta_km: number | null; desvio: number | null;
   sem_sinal_min: number | null; pontos: number | null; esparso: boolean | null;
+  motivo: { codigo: string; rotulo: string; explicacao: string; fatores: string[]; mostrar: boolean };
 };
 type Col = "numero" | "criado_em" | "dia_semana" | "faixa" | "cliente" | "bairro" | "entregador" | "chuva" | "rota" | "rota_esperada" | "delta_rota" | "porta" | "total" | "dist_km" | "vel_media" | "parado_min";
 
@@ -25,6 +26,9 @@ const corCel = (s: number | null, meta: number) => s == null ? "" : s <= meta ? 
 const corBarra = (s: number | null, meta: number) => s == null ? "bg-gray-300" : s <= meta ? "bg-green-500" : s <= meta * 1.5 ? "bg-yellow-400" : "bg-red-500";
 const FAIXAS = ["manhã", "almoço", "tarde", "noite"];
 const ESTACOES = ["verão", "outono", "inverno", "primavera"];
+// Cor do selo de motivo
+const corMotivo = (c: string) => c === "ok" ? "bg-green-100 text-green-800" : c === "separacao_lenta" ? "bg-blue-100 text-blue-800"
+  : c === "porta" ? "bg-purple-100 text-purple-800" : c === "sem_sinal" ? "bg-gray-200 text-gray-700" : "bg-orange-100 text-orange-800";
 // Diferença de rota (real - esperado) com sinal: "+2:10" / "-0:40"
 const delta = (s: number | null) => s == null ? "—" : `${s < 0 ? "-" : "+"}${mmss(Math.abs(s))}`;
 // Cor da diferença: verde se foi igual/mais rápido, amarelo até +20%, vermelho acima
@@ -38,6 +42,7 @@ export default function Entregas({ token, consulta }: { token: string; consulta:
   // Filtros (ficam no estado: a atualização automática não apaga)
   const [fEnt, setFEnt] = useState(""); const [fBairro, setFBairro] = useState(""); const [fFaixa, setFFaixa] = useState(""); const [fDia, setFDia] = useState("");
   const [soAtrasados, setSoAtrasados] = useState(false); const [busca, setBusca] = useState("");
+  const [fMotivo, setFMotivo] = useState(""); // filtro por motivo provável
   const [fChuva, setFChuva] = useState(""); const [fEstacao, setFEstacao] = useState(""); // filtros de clima
   const [ordem, setOrdem] = useState<{ col: Col; asc: boolean }>({ col: "criado_em", asc: false });
   const [aberto, setAberto] = useState<string | null>(null); // pedido com o detalhe aberto
@@ -54,14 +59,14 @@ export default function Entregas({ token, consulta }: { token: string; consulta:
     const b = busca.trim().toLowerCase();
     const l = dados.entregas.filter(e => (!fEnt || e.entregador === fEnt) && (!fBairro || e.bairro === fBairro) && (!fFaixa || e.faixa === fFaixa) &&
       (!fDia || e.dia_semana === fDia) && (!soAtrasados || e.atrasado) &&
-      (!fChuva || (fChuva === "sim" ? e.chuva === true : e.chuva === false)) && (!fEstacao || e.estacao === fEstacao) &&
+      (!fMotivo || (e.motivo.mostrar && e.motivo.rotulo === fMotivo)) && (!fChuva || (fChuva === "sim" ? e.chuva === true : e.chuva === false)) && (!fEstacao || e.estacao === fEstacao) &&
       (!b || e.numero.toLowerCase().includes(b) || (e.cliente ?? "").toLowerCase().includes(b) || (e.bairro ?? "").toLowerCase().includes(b)));
     return [...l].sort((a, c) => {
       const x = a[ordem.col], y = c[ordem.col];
       if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
       return (x < y ? -1 : x > y ? 1 : 0) * (ordem.asc ? 1 : -1);
     });
-  }, [dados, fEnt, fBairro, fFaixa, fDia, soAtrasados, busca, fChuva, fEstacao, ordem]);
+  }, [dados, fEnt, fBairro, fFaixa, fDia, soAtrasados, busca, fChuva, fEstacao, fMotivo, ordem]);
 
   if (!dados) return <p className="text-gray-500">Carregando…</p>;
   const M = dados.metas;
@@ -77,11 +82,13 @@ export default function Entregas({ token, consulta }: { token: string; consulta:
       <select value={fBairro} onChange={e => setFBairro(e.target.value)} className={sel}><option value="">Todos os bairros</option>{unicos("bairro").map(n => <option key={n}>{n}</option>)}</select>
       <select value={fFaixa} onChange={e => setFFaixa(e.target.value)} className={sel}><option value="">Todas as faixas</option>{FAIXAS.map(n => <option key={n}>{n}</option>)}</select>
       <select value={fDia} onChange={e => setFDia(e.target.value)} className={sel}><option value="">Todos os dias</option>{DIAS.map(n => <option key={n}>{n}</option>)}</select>
+      <select value={fMotivo} onChange={e => setFMotivo(e.target.value)} className={sel}><option value="">Todos os motivos</option>
+        {[...new Set(dados.entregas.filter(e => e.motivo.mostrar).map(e => e.motivo.rotulo))].map(n => <option key={n}>{n}</option>)}</select>
       <select value={fChuva} onChange={e => setFChuva(e.target.value)} className={sel}><option value="">Chuva: todas</option><option value="sim">Com chuva</option><option value="nao">Sem chuva</option></select>
       <select value={fEstacao} onChange={e => setFEstacao(e.target.value)} className={sel}><option value="">Todas as estações</option>{ESTACOES.map(n => <option key={n}>{n}</option>)}</select>
       <label className="flex items-center gap-1"><input type="checkbox" checked={soAtrasados} onChange={e => setSoAtrasados(e.target.checked)} /> Só atrasados</label>
       <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar pedido, cliente ou bairro" className="w-60 rounded-lg bg-gray-100 px-3 py-2 outline-none" />
-      {(fEnt || fBairro || fFaixa || fDia || soAtrasados || busca || fChuva || fEstacao) && <button onClick={() => { setFEnt(""); setFBairro(""); setFFaixa(""); setFDia(""); setSoAtrasados(false); setBusca(""); setFChuva(""); setFEstacao(""); }} className="text-blue-600 underline">Limpar</button>}
+      {(fEnt || fBairro || fFaixa || fDia || soAtrasados || busca || fChuva || fEstacao || fMotivo) && <button onClick={() => { setFEnt(""); setFBairro(""); setFFaixa(""); setFDia(""); setSoAtrasados(false); setBusca(""); setFChuva(""); setFEstacao(""); setFMotivo(""); }} className="text-blue-600 underline">Limpar</button>}
       <span className="ml-auto text-gray-500">{linhas.length} de {dados.entregas.length} entregas · clique numa linha para detalhes</span>
     </div>
 
@@ -95,6 +102,7 @@ export default function Entregas({ token, consulta }: { token: string; consulta:
                 {nome}{ordem.col === c ? (ordem.asc ? " ▲" : " ▼") : ""}
               </th>))}
             <th className="px-2 py-2">Prazo</th>
+            <th className="px-2 py-2">Motivo</th>
           </tr>
         </thead>
         <tbody>
@@ -119,10 +127,12 @@ export default function Entregas({ token, consulta }: { token: string; consulta:
                 <td className="px-2 text-right">{num(e.vel_media, " km/h")}</td>
                 <td className="px-2 text-right" title={e.sem_sinal_min ? `inclui ${num(e.sem_sinal_min)} min sem sinal/parado` : ""}>{num(e.parado_min, " min")}{e.sem_sinal_min ? <span className="text-gray-400"> ⚠</span> : null}</td>
                 <td className="px-2 text-center">{e.em_rota ? "🛵" : e.no_prazo ? "✅" : "⏰"}</td>
+                {/* selo só quando atrasou ou a rota passou 20% do esperado; senão fica em branco */}
+                <td className="px-2">{e.motivo.mostrar && <span title={e.motivo.explicacao} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${corMotivo(e.motivo.codigo)}`}>{e.motivo.rotulo}</span>}</td>
               </tr>
-              {aberto === e.numero && <tr><td colSpan={17} className="bg-gray-50 p-0"><Detalhe e={e} metas={M} token={token} /></td></tr>}
+              {aberto === e.numero && <tr><td colSpan={18} className="bg-gray-50 p-0"><Detalhe e={e} metas={M} token={token} /></td></tr>}
             </Fragment>))}
-          {!linhas.length && <tr><td colSpan={17} className="p-4 text-center text-gray-400">Nenhuma entrega com esses filtros.</td></tr>}
+          {!linhas.length && <tr><td colSpan={18} className="p-4 text-center text-gray-400">Nenhuma entrega com esses filtros.</td></tr>}
         </tbody>
         {/* Rodapé: médias do que está filtrado */}
         {linhas.length > 0 && (
@@ -137,6 +147,7 @@ export default function Entregas({ token, consulta }: { token: string; consulta:
               <td className="px-2 text-right">{num(media(linhas.map(e => e.vel_media)) == null ? null : +media(linhas.map(e => e.vel_media))!.toFixed(1), " km/h")}</td>
               <td className="px-2 text-right">{num(media(linhas.map(e => e.parado_min)) == null ? null : +media(linhas.map(e => e.parado_min))!.toFixed(1), " min")}</td>
               <td className="px-2 text-center">{(() => { const f = linhas.filter(e => e.no_prazo != null); return f.length ? `${Math.round(100 * f.filter(e => e.no_prazo).length / f.length)}%` : "—"; })()}</td>
+              <td />
             </tr>
           </tfoot>)}
       </table>
@@ -186,7 +197,13 @@ function Detalhe({ e, metas, token }: { e: Entrega; metas: Metas; token: string 
         {/* Espaços reservados para os próximos cartões */}
         <div className="grid grid-cols-2 gap-2 text-sm">
           <Info t={`Clima · ${e.estacao}`} v={e.clima ? `${e.clima.icone} ${e.clima.rotulo} · ${e.clima.temp ?? "—"}°C · ${e.clima.chuva_mm.toLocaleString("pt-BR")} mm` : "— (carregando)"} />
-          <Info t="Motivo do atraso" v="— (próximo cartão)" />
+          {/* Motivo provável: causa principal + explicação + até 2 fatores */}
+          <div className="rounded-lg bg-white p-2 shadow-sm">
+            <p className="text-xs text-gray-500">Motivo provável</p>
+            <p><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${corMotivo(e.motivo.codigo)}`}>{e.motivo.rotulo}</span></p>
+            <p className="mt-1 text-xs text-gray-600">{e.motivo.explicacao}</p>
+            {e.motivo.fatores.length > 0 && <p className="mt-1 text-xs text-gray-500">Também: {e.motivo.fatores.join(" · ")}</p>}
+          </div>
         </div>
       </div>
       <div>
