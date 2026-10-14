@@ -965,3 +965,59 @@ def gerente_separadores(de: date | None = None, ate: date | None = None, u=Depen
         })
     return {"de": de, "ate": ate, "meta_loja": META_LOJA, "separadores": saida,
             "top_faltas": [{"nome": x.nome, "sku": x.sku, "vezes": x.vezes, "unidades": int(x.unidades)} for x in faltas]}
+
+
+# ---------------- Gerente · vendas e perdas ----------------
+@app.get("/gerente/vendas")
+def gerente_vendas(de: date | None = None, ate: date | None = None, u=Depends(exige("gerente"))):
+    """Faturamento, ticket, reembolsos, expirados, vendas por dia/categoria e top vendidos/em falta."""
+    de, ate = periodo_sp(de, ate)
+    per = {"de": de, "ate": ate}
+    dia = "(p.criado_em AT TIME ZONE 'America/Sao_Paulo')::date"
+    filtro = f"{dia} BETWEEN :de AND :ate"
+    pago = "p.status NOT IN ('aguardando_pagamento', 'expirado')"   # pago = passou do pagamento
+    vendido = "i.status <> 'faltando'"                              # item que o cliente levou (ou vai levar)
+    with engine.connect() as c:
+        # cartões: pedidos.total já é o valor final (depois de faltas/substituições)
+        r = c.execute(text(f"""
+            SELECT COUNT(*) FILTER (WHERE {pago}) AS pagos,
+                   COALESCE(SUM(p.total) FILTER (WHERE {pago}), 0) AS faturamento,
+                   COUNT(*) FILTER (WHERE {pago} AND COALESCE(p.reembolso, 0) > 0) AS reemb_qtd,
+                   COALESCE(SUM(p.reembolso) FILTER (WHERE {pago}), 0) AS reemb_valor,
+                   COUNT(*) FILTER (WHERE p.status = 'expirado') AS exp_qtd,
+                   COALESCE(SUM(p.total) FILTER (WHERE p.status = 'expirado'), 0) AS exp_valor,
+                   COUNT(*) FILTER (WHERE p.status IN ('expirado') OR {pago}) AS decididos
+            FROM pedidos p WHERE {filtro}"""), per).first()
+        itens = c.execute(text(f"""SELECT COALESCE(SUM(i.quantidade), 0) FROM itens_pedido i JOIN pedidos p ON p.id = i.pedido_id
+                                   WHERE {filtro} AND {pago} AND {vendido}"""), per).scalar()
+        por_dia = c.execute(text(f"""SELECT {dia} AS dia, COUNT(*) AS pedidos, SUM(p.total) AS valor FROM pedidos p
+                                     WHERE {filtro} AND {pago} GROUP BY 1 ORDER BY 1"""), per).all()
+        # substituído conta como venda do produto que foi entregue
+        top_vend = c.execute(text(f"""
+            SELECT pr.sku, pr.nome, SUM(i.quantidade) AS qtd, SUM(i.quantidade * i.preco_unitario) AS valor
+            FROM itens_pedido i JOIN pedidos p ON p.id = i.pedido_id JOIN produtos pr ON pr.sku = COALESCE(i.substituto_sku, i.sku)
+            WHERE {filtro} AND {pago} AND {vendido} GROUP BY pr.sku, pr.nome ORDER BY qtd DESC, valor DESC LIMIT 10"""), per).all()
+        top_falta = c.execute(text(f"""
+            SELECT pr.sku, pr.nome, COUNT(*) AS vezes, SUM(i.quantidade) AS unidades, SUM(i.quantidade * i.preco_unitario) AS valor
+            FROM itens_pedido i JOIN pedidos p ON p.id = i.pedido_id JOIN produtos pr ON pr.sku = i.sku
+            WHERE {filtro} AND i.status = 'faltando' GROUP BY pr.sku, pr.nome ORDER BY vezes DESC, valor DESC LIMIT 10"""), per).all()
+        por_cat = c.execute(text(f"""
+            SELECT COALESCE(pr.categoria, 'Sem categoria') AS categoria, SUM(i.quantidade) AS qtd, SUM(i.quantidade * i.preco_unitario) AS valor
+            FROM itens_pedido i JOIN pedidos p ON p.id = i.pedido_id JOIN produtos pr ON pr.sku = COALESCE(i.substituto_sku, i.sku)
+            WHERE {filtro} AND {pago} AND {vendido} GROUP BY 1 ORDER BY valor DESC"""), per).all()
+    f = float
+    return {
+        "de": de, "ate": ate,
+        "cartoes": {
+            "faturamento": f(r.faturamento), "pedidos_pagos": r.pagos,
+            "ticket_medio": round(f(r.faturamento) / r.pagos, 2) if r.pagos else None,
+            "itens_pedido": round(int(itens) / r.pagos, 1) if r.pagos else None,
+            "reembolso_valor": f(r.reemb_valor), "reembolso_qtd": r.reemb_qtd,
+            "expirados_qtd": r.exp_qtd, "expirados_valor": f(r.exp_valor),
+            "taxa_expiracao": round(100 * r.exp_qtd / r.decididos, 1) if r.decididos else None,   # expirados / (pagos + expirados)
+        },
+        "por_dia": [{"dia": x.dia, "pedidos": x.pedidos, "valor": f(x.valor)} for x in por_dia],
+        "top_vendidos": [{"sku": x.sku, "nome": x.nome, "qtd": int(x.qtd), "valor": f(x.valor)} for x in top_vend],
+        "top_falta": [{"sku": x.sku, "nome": x.nome, "vezes": x.vezes, "unidades": int(x.unidades), "valor": f(x.valor)} for x in top_falta],
+        "por_categoria": [{"categoria": x.categoria, "qtd": int(x.qtd), "valor": f(x.valor)} for x in por_cat],
+    }
