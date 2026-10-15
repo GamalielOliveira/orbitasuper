@@ -1,0 +1,105 @@
+{
+  "fuso": "America/Sao_Paulo",
+  "loja": {
+    "seg": [
+      "07:00",
+      "22:00"
+    ],
+    "ter": [
+      "07:00",
+      "22:00"
+    ],
+    "qua": [
+      "07:00",
+      "22:00"
+    ],
+    "qui": [
+      "07:00",
+      "22:00"
+    ],
+    "sex": [
+      "07:00",
+      "22:00"
+    ],
+    "sab": [
+      "07:00",
+      "22:00"
+    ],
+    "dom": [
+      "08:00",
+      "22:00"
+    ]
+  },
+  "turnos": {
+    "1": {
+      "entrada": "07:00",
+      "saida": "16:00",
+      "entrada_domingo": "08:00",
+      "saida_domingo": "17:00"
+    },
+    "2": {
+      "entrada": "13:00",
+      "saida": "22:00",
+      "entrada_domingo": "13:00",
+      "saida_domingo": "22:00"
+    }
+  },
+  "regras": {
+    "pedidos_so_com_loja_aberta": true,
+    "equipe_so_no_turno": true,
+    "sem_trabalho_no_almoco": true,
+    "nao_simular": [
+      "2001",
+      "9001"
+    ]
+  },
+  "pedidos": {
+    "por_dia": 50,
+    "faixas": {
+      "manha": {
+        "de": "07:00",
+        "ate": "11:00",
+        "peso": 1.0,
+        "ticket": 0.85
+      },
+      "almoco": {
+        "de": "11:00",
+        "ate": "14:00",
+        "peso": 1.6,
+        "ticket": 1.0
+      },
+      "tarde": {
+        "de": "14:00",
+        "ate": "18:00",
+        "peso": 1.0,
+        "ticket": 0.85
+      },
+      "noite": {
+        "de": "18:00",
+        "ate": "22:00",
+        "peso": 1.9,
+        "ticket": 1.05
+      }
+    },
+    "prob_expirar": 0.08,
+    "prob_recusar": 0.03,
+    "pagar_em_seg": [
+      30,
+      240
+    ],
+    "max_itens": 30
+  },
+  "tempos": {
+    "separacao_base_seg": 60,
+    "separacao_por_item_seg": 22,
+    "fator_atraso_separacao": 1.7,
+    "velocidade_moto_kmh": 22,
+    "fator_atraso_rota": 1.6,
+    "porta_seg": [
+      60,
+      210
+    ],
+    "prob_cliente_demora": 0.08,
+    "fator_cliente_demora": 2.5
+  }
+}

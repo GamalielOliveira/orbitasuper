@@ -60,3 +60,9 @@ Domínio definitivo: **super.orbitacode.cloud**. Antes de subir:
 - [ ] Trocar a senha do 9001 (hoje 1234) por uma forte antes do deploy em super.orbitacode.cloud
 - [ ] Criar logins `cliente` de verdade (cadastro) quando abrir para outras pessoas
 - [ ] Proteger `GET /entrega/{numero}/posicao` (ainda aberto: mostra onde está o entregador)
+
+## Simulação (sim3)
+- [x] Simulador de pedidos dentro do backend (`python -m sim.simulador dia|teste|tick|resumo`), config em `backend/sim/config.json`
+- [ ] GPS sintético dos entregadores simulados: rota OSRM loja→cliente, pontos a cada 10 s numa tabela `posicoes_sim`; o painel lê dela quando o entregador é simulado (Traccar continua só para o Carlos)
+- [ ] Cron do modo tempo real (`tick`) com `flock` para não rodar dois ao mesmo tempo
+- [ ] Reposição automática de estoque para a simulação não zerar o catálogo
