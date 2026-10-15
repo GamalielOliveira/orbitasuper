@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Endereco, { type EnderecoForm } from "./Endereco";
 import Foto from "./Foto";
 import Home from "./Home";
+import { api, sair } from "./sessao";
 
 type Produto = { sku: string; nome: string; categoria: string; subcategoria: string | null; preco: string; preco_original: string | null;
   estoque: number; proxima_validade: string | null; conservacao: string | null; peso: string | null; imagem_url: string | null };
@@ -34,7 +35,7 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
   async function finalizar(endereco: EnderecoForm) {
     const itens = Object.entries(carrinho).map(([sku, quantidade]) => ({ sku, quantidade }));
     setEnviando(true);
-    const r = await fetch("/api/pedidos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cliente: "Gamaliel", itens, endereco }) });
+    const r = await api("/pedidos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cliente: "", itens, endereco }) });   // nome vem do login
     const d = await r.json();
     setEnviando(false);
     if (!r.ok) { setMsg(`❌ ${typeof d.detail === "string" ? d.detail : "Confira o endereço"}`); setPedirEndereco(false); return; }
@@ -44,16 +45,16 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
 
   async function pagar(metodo: "pix" | "cartao") {
     if (!checkout) return;
-    const r = await fetch(`/api/pedidos/${checkout.numero}/pagamento`, { method: "POST", headers: { "Content-Type": "application/json" },
+    const r = await api(`/pedidos/${checkout.numero}/pagamento`, { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ metodo, cartao_final: metodo === "cartao" ? cartao.slice(-4) : null }) });
     const d = await r.json();
     setCheckout({ ...checkout, etapa: "aguardando", pix: d.pix_copia_cola });
     const timer = setInterval(async () => {
-      const st = await (await fetch(`/api/pedidos/${checkout.numero}`)).json();
+      const st = await (await api(`/pedidos/${checkout.numero}`)).json();
       if (st.pagamento === "aprovado" || st.pagamento === "recusado") {
         clearInterval(timer);
         setCheckout(c => c && { ...c, etapa: st.pagamento });
-        setProdutos(await (await fetch("/api/produtos", { cache: "no-store" })).json());
+        setProdutos(await (await api("/produtos", { cache: "no-store" })).json());
       }
     }, 2000);
   }
@@ -89,6 +90,7 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
           </div>
           <button className="flex h-[32px] shrink-0 items-center gap-[6px] rounded-full bg-gray-100 px-[12px] text-[14px] font-semibold text-gray-700">📍 Adicionar endereço <span className="text-blue-600">+</span></button>
           <span className="flex h-[32px] w-[165px] shrink-0 items-center justify-center gap-[6px] rounded-full bg-blue-600 text-[14px] font-semibold text-white">🕒 Em minutos</span>
+          <button onClick={sair} className="shrink-0 text-[13px] text-gray-500 underline">Sair</button>
           <button onClick={() => setAberto(true)} aria-label="Sacola" className="relative flex h-[32px] w-[44px] shrink-0 items-center justify-center rounded-[10px] bg-blue-600 text-white transition active:scale-95">
             <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 7h12l1 13H5L6 7Z" /><path d="M9 7a3 3 0 0 1 6 0" /></svg>
             {qtdTotal > 0 && <span className="absolute -right-[6px] -top-[6px] flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-yellow-400 px-[4px] text-[11px] font-bold text-blue-900">{qtdTotal}</span>}

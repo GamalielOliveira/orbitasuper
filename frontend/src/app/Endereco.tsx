@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import Mapa from "./Mapa";
 
-const API = "/api";
+import { api } from "./sessao";
 export type EnderecoForm = { cep: string; rua: string; numero_end: string; complemento: string; bairro: string; cidade: string; uf: string; referencia: string; lat: number | null; lon: number | null };
 const vazio: EnderecoForm = { cep: "", rua: "", numero_end: "", complemento: "", bairro: "", cidade: "", uf: "", referencia: "", lat: null, lon: null };
 
@@ -29,7 +29,7 @@ export default function Endereco({ onConfirmar, onFechar, enviando }: { onConfir
     if (!e.rua || !e.cidade || !e.uf) return setMsg("Preencha rua, cidade e UF.");
     setBuscando(true); setMsg("");
     const q = new URLSearchParams({ rua: e.rua, cidade: e.cidade, uf: e.uf, ...(e.numero_end ? { numero: e.numero_end } : {}) });
-    const r = await fetch(`${API}/geo/geocode?${q}`);
+    const r = await api(`/geo/geocode?${q}`);   // precisa do token
     setBuscando(false);
     if (!r.ok) return setMsg("Não achei no mapa. Confira rua e número.");
     const d = await r.json(); setE(x => ({ ...x, lat: d.lat, lon: d.lon }));

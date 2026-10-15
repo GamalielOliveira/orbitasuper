@@ -54,3 +54,9 @@ Domínio definitivo: **super.orbita.cloud**. Antes de subir:
 
 ## Adiado
 - Automações n8n e o mini backend do zero ficam para depois de alguns dias de uso real.
+
+## Login na loja (b2)
+- [x] Loja do cliente (/) só abre com login; aceita gerente e (no futuro) perfil `cliente`
+- [ ] Trocar a senha do 9001 (hoje 1234) por uma forte antes do deploy em super.orbita.cloud
+- [ ] Criar logins `cliente` de verdade (cadastro) quando abrir para outras pessoas
+- [ ] Proteger `GET /entrega/{numero}/posicao` (ainda aberto: mostra onde está o entregador)

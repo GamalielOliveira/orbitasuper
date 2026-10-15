@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends
 from sqlalchemy import text
 from app.db import engine
+from app.auth import exige   # login (JWT) também na loja do cliente
 
 import asyncio, os as _os
 from contextlib import asynccontextmanager
@@ -77,7 +78,7 @@ def health():
     return {"status": "ok"}
 
 @app.get("/produtos")
-def listar_produtos():
+def listar_produtos(u=Depends(exige("cliente"))):
     sql = text("""
         SELECT p.sku, p.nome, p.categoria, p.preco, p.subcategoria, p.descricao, p.conservacao, p.peso, p.imagem_url, p.preco_original,
                COALESCE(SUM(l.quantidade - l.reservado), 0) AS estoque,
@@ -108,7 +109,7 @@ class EnderecoIn(BaseModel):
     lon: float | None = Field(None, ge=-180, le=180)
 
 class PedidoIn(BaseModel):
-    cliente: str
+    cliente: str = ""   # ignorado: o nome vem do login
     itens: list[ItemIn] = Field(min_length=1)
     endereco: EnderecoIn
 
@@ -127,13 +128,17 @@ def geocodificar(rua: str, numero: str | None, cidade: str, uf: str):
     return (nominatim(f"{rua}, {numero}, {cidade}, {uf}, Brasil") if numero else None) or nominatim(f"{rua}, {cidade}, {uf}, Brasil")
 
 @app.get("/geo/geocode")
-def geo_geocode(rua: str, cidade: str, uf: str, numero: str | None = None):
+def geo_geocode(rua: str, cidade: str, uf: str, numero: str | None = None, u=Depends(exige("cliente"))):
     pos = geocodificar(rua, numero, cidade, uf)
     if not pos: raise HTTPException(404, "Endereço não encontrado no mapa")
     return {"lat": pos[0], "lon": pos[1]}
 
+def dono(pedido, u) -> bool:
+    """Cliente só vê/paga os próprios pedidos (404 para os outros, para não revelar que existem). Gerente vê todos."""
+    return u["funcao"] == "gerente" or pedido.cliente_matricula == u["sub"]
+
 @app.post("/pedidos", status_code=201)
-def criar_pedido(p: PedidoIn):
+def criar_pedido(p: PedidoIn, u=Depends(exige("cliente"))):
     e = p.endereco
     if e.lat is None or e.lon is None:  # sem pino do cliente: geocodifica fora da transação
         pos = geocodificar(e.rua, e.numero_end, e.cidade, e.uf)
@@ -142,9 +147,10 @@ def criar_pedido(p: PedidoIn):
         cep = e.cep.replace("-", ""); cep = f"{cep[:5]}-{cep[5:]}"
         linha = f"{e.rua}, {e.numero_end}" + (f" - {e.complemento}" if e.complemento else "") + f" - {e.bairro}, {e.cidade}/{e.uf.upper()} - CEP {cep}"
         num = c.execute(text("SELECT 'MD-' || LPAD(nextval('pedido_numero_seq')::text, 6, '0')")).scalar()
-        pid = c.execute(text("""INSERT INTO pedidos (numero, loja_id, cliente, status, total, endereco, cep, rua, numero_end, complemento, bairro, cidade, uf, referencia, lat, lon)
-                                VALUES (:n, (SELECT MIN(id) FROM lojas), :c, 'aguardando_pagamento', 0, :linha, :cep, :rua, :num, :comp, :bairro, :cidade, :uf, :ref, :lat, :lon) RETURNING id"""),
-                            {"n": num, "c": p.cliente, "linha": linha[:200], "cep": cep, "rua": e.rua, "num": e.numero_end, "comp": e.complemento or None,
+        # o pedido fica no nome de quem está logado (ignora o "cliente" que vem do navegador)
+        pid = c.execute(text("""INSERT INTO pedidos (numero, loja_id, cliente, cliente_matricula, status, total, endereco, cep, rua, numero_end, complemento, bairro, cidade, uf, referencia, lat, lon)
+                                VALUES (:n, (SELECT MIN(id) FROM lojas), :c, :cm, 'aguardando_pagamento', 0, :linha, :cep, :rua, :num, :comp, :bairro, :cidade, :uf, :ref, :lat, :lon) RETURNING id"""),
+                            {"n": num, "c": u["nome"], "cm": u["sub"], "linha": linha[:200], "cep": cep, "rua": e.rua, "num": e.numero_end, "comp": e.complemento or None,
                              "bairro": e.bairro, "cidade": e.cidade, "uf": e.uf.upper(), "ref": e.referencia or None, "lat": e.lat, "lon": e.lon}).scalar()
         total = 0
         for item in p.itens:
@@ -184,10 +190,10 @@ def gateway_falso(gateway_id: str, aprovar: bool):
     urllib.request.urlopen(req)
 
 @app.post("/pedidos/{numero}/pagamento", status_code=201)
-def criar_pagamento(numero: str, pg: PagamentoIn):
+def criar_pagamento(numero: str, pg: PagamentoIn, u=Depends(exige("cliente"))):
     with engine.begin() as c:
-        ped = c.execute(text("SELECT id, total, status FROM pedidos WHERE numero = :n"), {"n": numero}).first()
-        if not ped: raise HTTPException(404, "Pedido não encontrado")
+        ped = c.execute(text("SELECT id, total, status, cliente_matricula FROM pedidos WHERE numero = :n"), {"n": numero}).first()
+        if not ped or not dono(ped, u): raise HTTPException(404, "Pedido não encontrado")
         if ped.status != "aguardando_pagamento": raise HTTPException(409, f"Pedido está {ped.status}")
         gid = f"gw_{uuid.uuid4().hex[:16]}"
         pix = f"00020126BR.GOV.BCB.PIX{gid}5204000053039865406{ped.total}5802BR" if pg.metodo == "pix" else None
@@ -220,12 +226,13 @@ def webhook_pagamento(aviso: dict):
     return {"ok": True}
 
 @app.get("/pedidos/{numero}")
-def ver_pedido(numero: str):
+def ver_pedido(numero: str, u=Depends(exige("cliente"))):
     with engine.connect() as c:
-        r = c.execute(text("""SELECT p.numero, p.status, p.total, pg.metodo, pg.status AS pagamento
+        r = c.execute(text("""SELECT p.numero, p.status, p.total, pg.metodo, pg.status AS pagamento, p.cliente_matricula
                               FROM pedidos p LEFT JOIN pagamentos pg ON pg.pedido_id = p.id WHERE p.numero = :n"""), {"n": numero}).first()
-    if not r: raise HTTPException(404, "Pedido não encontrado")
-    return dict(r._mapping)
+    if not r or not dono(r, u): raise HTTPException(404, "Pedido não encontrado")
+    d = dict(r._mapping); d.pop("cliente_matricula")
+    return d
 
 from app.auth import confere_pin, gera_token
 
@@ -562,6 +569,7 @@ def qualquer_funcionario(cred=Depends(bearer)):
 @app.get("/operacao/quadro")
 def quadro(u=Depends(qualquer_funcionario)):
     """Quadro da loja (somente leitura): pedidos por etapa, com responsável e tempo."""
+    if u.get("funcao") == "cliente": raise HTTPException(403, "Sem permissão para esta área")   # cliente não vê o quadro da loja
     with engine.connect() as c:
         r = c.execute(text("""
             SELECT p.numero, p.status, p.total, COUNT(i.id) AS itens,
