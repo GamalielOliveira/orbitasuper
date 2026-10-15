@@ -1092,7 +1092,7 @@ def gerente_estoque(u=Depends(exige("gerente"))):
 def gerente_estoque_sku(sku: str, u=Depends(exige("gerente"))):
     """Lotes do produto + extrato (últimas 50 movimentações)."""
     with engine.connect() as c:
-        lotes = c.execute(text(f"""SELECT id, validade, quantidade, reservado, (validade < {HOJE_SP}) AS vencido
+        lotes = c.execute(text(f"""SELECT id, validade, entrada_em, quantidade, reservado, (validade < {HOJE_SP}) AS vencido
                                    FROM lotes WHERE sku = :s ORDER BY validade NULLS LAST, id"""), {"s": sku}).all()
         movs = c.execute(text("""
             SELECT m.id, to_char(m.criado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YY HH24:MI') AS hora,
@@ -1101,7 +1101,7 @@ def gerente_estoque_sku(sku: str, u=Depends(exige("gerente"))):
             FROM movimentacoes_estoque m LEFT JOIN pedidos p ON p.id = m.pedido_id
             WHERE m.sku = :s ORDER BY m.id DESC LIMIT 50"""), {"s": sku}).all()
     return {"sku": sku,
-            "lotes": [{"id": l.id, "validade": l.validade, "quantidade": l.quantidade, "reservado": l.reservado, "vencido": bool(l.vencido)} for l in lotes],
+            "lotes": [{"id": l.id, "validade": l.validade, "entrada_em": l.entrada_em, "quantidade": l.quantidade, "reservado": l.reservado, "vencido": bool(l.vencido)} for l in lotes],
             "movimentacoes": [dict(m._mapping) for m in movs]}
 
 
@@ -1110,6 +1110,10 @@ def gerente_estoque_sku(sku: str, u=Depends(exige("gerente"))):
 class EntradaIn(BaseModel):
     quantidade: int = Field(gt=0, le=100000)
     validade: date | None = None
+    entrada_em: date | None = None   # dia em que a mercadoria chegou (vazio = hoje)
+
+class ValidadeIn(BaseModel):
+    validade: date | None = None     # None = lote sem validade
 
 class AjusteIn(BaseModel):
     contagem: int = Field(ge=0, le=100000)                 # quanto tem fisicamente no lote
@@ -1149,12 +1153,15 @@ def baixar_vencidos(u=Depends(exige("gerente"))):
 @app.post("/gerente/estoque/{sku}/entrada")
 def entrada_mercadoria(sku: str, e: EntradaIn, u=Depends(exige("gerente"))):
     hoje = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    entrada = e.entrada_em or hoje
+    if entrada > hoje: raise HTTPException(422, "Data de entrada no futuro")
+    if e.validade and e.validade < entrada: raise HTTPException(422, "Validade antes da data de entrada")
     if e.validade and e.validade < hoje: raise HTTPException(422, "Validade já passou")
     with engine.begin() as c:
         if not c.execute(text("SELECT 1 FROM produtos WHERE sku = :s"), {"s": sku}).first(): raise HTTPException(404, "Produto não existe")
         # lote nasce zerado e a entrada soma pelo mover_estoque (assim o extrato fecha com o saldo)
-        lid = c.execute(text("""INSERT INTO lotes (loja_id, sku, validade, quantidade, reservado)
-                                VALUES ((SELECT MIN(id) FROM lojas), :s, :v, 0, 0) RETURNING id"""), {"s": sku, "v": e.validade}).scalar()
+        lid = c.execute(text("""INSERT INTO lotes (loja_id, sku, validade, entrada_em, quantidade, reservado)
+                                VALUES ((SELECT MIN(id) FROM lojas), :s, :v, :e, 0, 0) RETURNING id"""), {"s": sku, "v": e.validade, "e": entrada}).scalar()
         mover_estoque(c, lid, "entrada", e.quantidade, "quantidade", funcionario=u["sub"], motivo="recebimento")
         return {"ok": True, "lote_id": lid}
 
@@ -1175,3 +1182,20 @@ def editar_minimo(sku: str, m: MinimoIn, u=Depends(exige("gerente"))):
         ok = c.execute(text("UPDATE produtos SET estoque_minimo = :m WHERE sku = :s RETURNING sku"), {"m": m.minimo, "s": sku}).first()
         if not ok: raise HTTPException(404, "Produto não existe")
         return {"ok": True, "minimo": m.minimo}
+
+
+# ---------------- Gerente · editar validade de um lote ----------------
+@app.patch("/gerente/estoque/lotes/{lote_id}/validade")
+def editar_validade(lote_id: int, v: ValidadeIn, u=Depends(exige("gerente"))):
+    """Corrige a validade. Fica no extrato como 'ajuste' de 0 unidades (só para registrar quem e quando).
+    A situação (vencido/vencendo/ok) é calculada na hora em GET /gerente/estoque, então já sai atualizada."""
+    br = lambda d: d.strftime("%d/%m") if d else "sem"
+    with engine.begin() as c:
+        lote = c.execute(text("SELECT validade, entrada_em FROM lotes WHERE id = :id FOR UPDATE"), {"id": lote_id}).first()
+        if not lote: raise HTTPException(404, "Lote não existe")
+        if v.validade == lote.validade: raise HTTPException(409, "Validade igual à atual")
+        if v.validade and lote.entrada_em and v.validade < lote.entrada_em: raise HTTPException(422, "Validade antes da data de entrada do lote")
+        r = c.execute(text("UPDATE lotes SET validade = :v WHERE id = :id RETURNING quantidade, reservado"), {"v": v.validade, "id": lote_id}).first()
+        registrar_mov(c, lote_id, "ajuste", 0, "quantidade", r.quantidade, r.reservado, funcionario=u["sub"],
+                      motivo=f"validade {br(lote.validade)}→{br(v.validade)}")
+        return {"ok": True, "validade": v.validade}

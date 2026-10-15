@@ -6,7 +6,7 @@ const API = "/api";
 type Sit = "vencido" | "zerado" | "baixo" | "vencendo" | "ok";
 type Prod = { sku: string; nome: string; categoria: string; total: number; reservado: number; livre: number; minimo: number; lotes: number; validade: string | null; situacao: Sit };
 type Dados = { cartoes: { zerados: number; abaixo_minimo: number; vencidos_un: number; vencidos_valor: number; vencendo: number }; produtos: Prod[] };
-type Lote = { id: number; validade: string | null; quantidade: number; reservado: number; vencido: boolean };
+type Lote = { id: number; validade: string | null; entrada_em: string | null; quantidade: number; reservado: number; vencido: boolean };
 type Mov = { id: number; hora: string; lote_id: number; tipo: string; campo: string; quantidade: number; saldo_quantidade: number; saldo_reservado: number; pedido: string | null; funcionario: string | null; motivo: string | null };
 type Col = "nome" | "categoria" | "total" | "reservado" | "livre" | "minimo" | "lotes" | "validade" | "situacao";
 
@@ -17,6 +17,8 @@ const SIT: Record<Sit, [string, string]> = {   // rótulo e cor de cada situaç�
 };
 const ORDEM_SIT: Record<Sit, number> = { vencido: 0, zerado: 1, baixo: 2, vencendo: 3, ok: 4 };
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+// Data de hoje em São Paulo no formato AAAA-MM-DD (para os campos de data)
+const hojeSP = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 const dataBR = (d: string | null) => d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}` : "—";
 
 function Cartao({ titulo, valor, sub, ruim }: { titulo: string; valor: string | number; sub?: string; ruim: boolean }) {
@@ -36,7 +38,9 @@ const btn = "rounded border px-2 py-0.5 text-xs font-semibold hover:bg-gray-100 
 function Detalhe({ sku, token, minimo, chamar, versao }: { sku: string; token: string; minimo: number; chamar: Chamar; versao: number }) {
   const [d, setD] = useState<{ lotes: Lote[]; movimentacoes: Mov[] } | null>(null);
   const [ajuste, setAjuste] = useState<{ lote: number; contagem: string; motivo: string } | null>(null);   // lote com o form de inventário aberto
-  const [ent, setEnt] = useState({ quantidade: "", validade: "" });
+  const [hoje] = useState(hojeSP);   // lido uma vez ao abrir (não chamar Date durante o render)
+  const [ent, setEnt] = useState({ quantidade: "", validade: "", entrada: hoje });
+  const [edVal, setEdVal] = useState<{ lote: number; validade: string } | null>(null);   // lote com o form de validade aberto
   const [min, setMin] = useState(String(minimo));
   useEffect(() => {
     fetch(`${API}/gerente/estoque/${encodeURIComponent(sku)}`, { headers: { Authorization: `Bearer ${token}` } })
@@ -53,8 +57,17 @@ function Detalhe({ sku, token, minimo, chamar, versao }: { sku: string; token: s
     if (await chamar(`/gerente/estoque/lotes/${ajuste.lote}/ajuste`, "POST", { contagem: Number(ajuste.contagem), motivo: ajuste.motivo })) setAjuste(null);
   };
   const salvarEntrada = async () => {
-    if (await chamar(`${base}/entrada`, "POST", { quantidade: Number(ent.quantidade), validade: ent.validade || null })) setEnt({ quantidade: "", validade: "" });
+    if (await chamar(`${base}/entrada`, "POST", { quantidade: Number(ent.quantidade), validade: ent.validade || null, entrada_em: ent.entrada || null }))
+      setEnt({ quantidade: "", validade: "", entrada: hoje });
   };
+  const salvarValidade = async () => {
+    if (!edVal) return;
+    if (await chamar(`/gerente/estoque/lotes/${edVal.lote}/validade`, "PATCH", { validade: edVal.validade || null })) setEdVal(null);
+  };
+  // datas no formato AAAA-MM-DD comparam certo como texto
+  const valMin = ent.entrada > hoje ? ent.entrada : hoje;
+  const valErro = ent.validade && ent.validade < ent.entrada ? "Validade antes da entrada" : ent.validade && ent.validade < hoje ? "Validade já passou" : "";
+  const entErro = ent.entrada > hoje ? "Entrada no futuro" : "";
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[400px_1fr]">
@@ -62,21 +75,33 @@ function Detalhe({ sku, token, minimo, chamar, versao }: { sku: string; token: s
         <div>
           <p className="mb-1 text-xs font-bold text-gray-600">Lotes</p>
           <table className="w-full text-xs">
-            <thead className="text-left text-gray-500"><tr><th>Lote</th><th>Validade</th><th className="text-right">Qtd</th><th className="text-right">Reserv.</th><th /></tr></thead>
+            <thead className="text-left text-gray-500"><tr><th>Lote</th><th>Entrada</th><th>Validade</th><th className="text-right">Qtd</th><th className="text-right">Reserv.</th><th /></tr></thead>
             <tbody>
               {d.lotes.map(l => (
                 <Fragment key={l.id}>
                   <tr className={`border-t ${l.vencido && l.quantidade > 0 ? "font-semibold text-red-700" : ""}`}>
-                    <td className="py-0.5">#{l.id}</td><td>{dataBR(l.validade)}{l.vencido ? " ⚠" : ""}</td>
+                    <td className="py-0.5">#{l.id}</td><td className="text-gray-500">{dataBR(l.entrada_em)}</td><td>{dataBR(l.validade)}{l.vencido ? " ⚠" : ""}</td>
                     <td className="text-right">{l.quantidade}</td><td className="text-right">{l.reservado}</td>
                     <td className="space-x-1 pl-2 text-right">
                       {l.vencido && l.quantidade > 0 && <button onClick={() => darBaixa(l)} className={`${btn} border-red-300 text-red-700`}>Dar baixa</button>}
+                      <button onClick={() => setEdVal(x => x?.lote === l.id ? null : { lote: l.id, validade: l.validade ?? "" })} className={btn}>Validade</button>
                       <button onClick={() => setAjuste(a => a?.lote === l.id ? null : { lote: l.id, contagem: String(l.quantidade), motivo: "" })} className={btn}>Ajustar</button>
                     </td>
                   </tr>
+                  {/* Editar validade: fica no extrato como ajuste de 0 un. */}
+                  {edVal?.lote === l.id && (
+                    <tr><td colSpan={6} className="bg-white py-1">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span>Nova validade:</span>
+                        <input type="date" min={l.entrada_em ?? undefined} value={edVal.validade} onChange={e => setEdVal({ ...edVal, validade: e.target.value })} className={inp} />
+                        <button disabled={(edVal.validade || null) === l.validade || (!!l.entrada_em && !!edVal.validade && edVal.validade < l.entrada_em)} onClick={salvarValidade} className={btn}>Salvar</button>
+                        {edVal.validade === hoje && <span className="text-yellow-700">⚠ vence hoje</span>}
+                        {!!l.entrada_em && !!edVal.validade && edVal.validade < l.entrada_em && <span className="text-red-700">antes da entrada</span>}
+                      </div>
+                    </td></tr>)}
                   {/* Ajuste de inventário: informa a contagem física; a diferença vai pro extrato */}
                   {ajuste?.lote === l.id && (
-                    <tr><td colSpan={5} className="bg-white py-1">
+                    <tr><td colSpan={6} className="bg-white py-1">
                       <div className="flex flex-wrap items-center gap-1">
                         <span>Contagem:</span>
                         <input type="number" min={l.reservado} value={ajuste.contagem} onChange={e => setAjuste({ ...ajuste, contagem: e.target.value })} className={`${inp} w-16`} />
@@ -94,9 +119,14 @@ function Detalhe({ sku, token, minimo, chamar, versao }: { sku: string; token: s
           <p className="mb-1 font-bold text-gray-600">Entrada de mercadoria</p>
           <div className="flex flex-wrap items-center gap-1">
             <input type="number" min={1} value={ent.quantidade} onChange={e => setEnt({ ...ent, quantidade: e.target.value })} placeholder="Qtd" className={`${inp} w-16`} />
-            <input type="date" value={ent.validade} onChange={e => setEnt({ ...ent, validade: e.target.value })} className={inp} title="Validade (opcional)" />
-            <button disabled={!(Number(ent.quantidade) > 0)} onClick={salvarEntrada} className={btn}>Registrar</button>
+            <label className="flex items-center gap-1">Entrada
+              <input type="date" max={hoje} value={ent.entrada} onChange={e => setEnt({ ...ent, entrada: e.target.value })} className={inp} /></label>
+            <label className="flex items-center gap-1">Validade
+              <input type="date" min={valMin} value={ent.validade} onChange={e => setEnt({ ...ent, validade: e.target.value })} className={inp} title="opcional" /></label>
+            <button disabled={!(Number(ent.quantidade) > 0) || !ent.entrada || !!valErro || !!entErro} onClick={salvarEntrada} className={btn}>Registrar</button>
           </div>
+          {(valErro || entErro) && <p className="mt-1 text-red-700">{entErro || valErro}</p>}
+          {!valErro && ent.validade === hoje && <p className="mt-1 text-yellow-700">⚠ Validade é hoje: o lote vence amanhã e não poderá mais ser vendido.</p>}
         </div>
         {/* Estoque mínimo: abaixo disso aparece como "baixo" */}
         <div className="flex items-center gap-1 text-xs">

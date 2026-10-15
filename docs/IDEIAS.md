@@ -40,3 +40,7 @@ Lista viva do que ainda falta ou pode melhorar. Marque `[x]` quando fizer.
 ## Aprendizado
 - [ ] Mini backend do zero
 - [ ] Trilha gerente + DevOps: infra, rotas, banco, usuários, estoque
+
+## Feito
+- [x] Entrada de mercadoria com data de entrada (padrão hoje); validade não pode ser antes da entrada e avisa quando é hoje (e4)
+- [x] Editar validade de um lote (só gerente), registrada no extrato como ajuste de 0 un. (e4)
