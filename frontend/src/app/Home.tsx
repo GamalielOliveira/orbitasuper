@@ -100,7 +100,7 @@ export default function Home({ produtos, categorias, abrir, acao }: { produtos: 
       </section>
 
       <p className="mb-[8px] mt-[48px] text-[12px] font-bold uppercase text-blue-600">Perguntas frequentes</p>
-      {["Como funciona um supermercado online?", "Como comprar na Daki?", "Onde a Daki entrega no Brasil?", "A Daki oferece promoções e cupons para compras?", "Precisa de ajuda com seu pedido, e agora?"].map(q => (
+      {["Como funciona um supermercado online?", "Como comprar no Super?", "Onde o Super entrega no Brasil?", "O Super oferece promoções e cupons para compras?", "Precisa de ajuda com seu pedido, e agora?"].map(q => (
         <details key={q} className="border-b py-[12px] text-[14px] text-blue-800"><summary className="cursor-pointer font-semibold">{q}</summary><p className="mt-[8px] text-gray-600">Em breve.</p></details>
       ))}
     </div>

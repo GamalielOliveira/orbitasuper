@@ -67,7 +67,7 @@ async def lifespan(app):
     yield
     tarefa.cancel()
 
-app = FastAPI(title="Daki Replica", lifespan=lifespan)
+app = FastAPI(title="Super", lifespan=lifespan)
 
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["*"], allow_headers=["*"])

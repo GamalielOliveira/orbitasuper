@@ -81,7 +81,7 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
     <div className="min-h-screen w-full overflow-x-hidden bg-white text-gray-900">
       <header className="sticky top-0 z-20 w-full bg-white shadow-[0_2px_8px_rgba(0,0,0,0.08)]">
         <div className="mx-auto flex h-[64px] w-full max-w-[1232px] items-center gap-[16px]">
-          <span className="shrink-0 text-[28px] font-extrabold leading-none text-blue-600">daki</span>
+          <span className="shrink-0 text-[28px] font-extrabold leading-none text-blue-600">super</span>
           <div className="relative flex-1">
             <svg className="pointer-events-none absolute left-[12px] top-[10px] h-[16px] w-[16px] text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
             <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Busque por um produto aqui"
@@ -152,7 +152,7 @@ export default function Catalogo({ inicial }: { inicial: Produto[] }) {
       {aberto && <div onClick={() => setAberto(false)} className="fixed inset-0 z-30 bg-black/30" />}
       <aside className={`fixed right-0 top-0 z-40 flex h-full w-96 flex-col bg-white shadow-2xl transition-transform duration-300 ${aberto ? "translate-x-0" : "translate-x-full"}`}>
         <div className="flex items-center justify-between border-b p-4">
-          <h2 className="text-lg font-bold">Minha lista na Daki</h2>
+          <h2 className="text-lg font-bold">Minha lista no Super</h2>
           <button onClick={() => setAberto(false)} className="text-xl text-blue-600">✕</button>
         </div>
         <div className="flex-1 overflow-y-auto p-4">

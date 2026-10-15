@@ -44,3 +44,13 @@ Lista viva do que ainda falta ou pode melhorar. Marque `[x]` quando fizer.
 ## Feito
 - [x] Entrada de mercadoria com data de entrada (padrão hoje); validade não pode ser antes da entrada e avisa quando é hoje (e4)
 - [x] Editar validade de um lote (só gerente), registrada no extrato como ajuste de 0 un. (e4)
+
+## Deploy (super.orbita.cloud)
+Domínio definitivo: **super.orbita.cloud**. Antes de subir:
+- [ ] `JWT_SECRET` forte
+- [ ] Limpar produtos de teste com "**Prox Venc**" no nome
+- [ ] Traccar Client enviando posição a cada 10 s
+- [ ] Deploy na VPS
+
+## Adiado
+- Automações n8n e o mini backend do zero ficam para depois de alguns dias de uso real.
