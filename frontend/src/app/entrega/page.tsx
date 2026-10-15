@@ -94,7 +94,7 @@ export default function Entrega() {
         <p className="text-2xl font-extrabold text-blue-600">OrbitaSuper</p>
         <p className="mb-5 text-sm text-gray-500">Área do colaborador · Entrega 🛵</p>
         <input value={mat} onChange={e => setMat(e.target.value)} placeholder="Matrícula" className="mb-3 w-full rounded-lg bg-gray-100 px-3 py-3 outline-none" />
-        <input value={pin} onChange={e => setPin(e.target.value)} onKeyDown={e => e.key === "Enter" && entrar()} placeholder="PIN" type="password" maxLength={4} className="mb-3 w-full rounded-lg bg-gray-100 px-3 py-3 outline-none" />
+        <input value={pin} onChange={e => setPin(e.target.value)} onKeyDown={e => e.key === "Enter" && entrar()} placeholder="PIN" type="password" className="mb-3 w-full rounded-lg bg-gray-100 px-3 py-3 outline-none" />
         {erro && <p className="mb-2 text-sm text-red-600">{erro}</p>}
         <button onClick={entrar} className="w-full rounded-xl bg-green-600 py-3 font-semibold text-white transition active:scale-95">Entrar</button>
       </div>
