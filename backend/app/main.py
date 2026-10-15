@@ -1103,3 +1103,75 @@ def gerente_estoque_sku(sku: str, u=Depends(exige("gerente"))):
     return {"sku": sku,
             "lotes": [{"id": l.id, "validade": l.validade, "quantidade": l.quantidade, "reservado": l.reservado, "vencido": bool(l.vencido)} for l in lotes],
             "movimentacoes": [dict(m._mapping) for m in movs]}
+
+
+# ---------------- Gerente · ações de estoque ----------------
+# Tudo passa por mover_estoque (fica no extrato com a matrícula do gerente).
+class EntradaIn(BaseModel):
+    quantidade: int = Field(gt=0, le=100000)
+    validade: date | None = None
+
+class AjusteIn(BaseModel):
+    contagem: int = Field(ge=0, le=100000)                 # quanto tem fisicamente no lote
+    motivo: str = Field(min_length=3, max_length=200)      # obrigatório: por que mudou
+
+class MinimoIn(BaseModel):
+    minimo: int = Field(ge=0, le=100000)
+
+def _baixar_lote(c, lote, u):
+    """Baixa um lote vencido como perda. Com reserva não mexe (pedido em aberto usando o lote)."""
+    if lote.reservado > 0: return f"lote #{lote.id} tem {lote.reservado} reservado(s)"
+    if lote.quantidade <= 0: return f"lote #{lote.id} já está zerado"
+    mover_estoque(c, lote.id, "perda", -lote.quantidade, "quantidade", funcionario=u["sub"], motivo="vencido")
+    return None
+
+SQL_VENCIDO = f"SELECT id, sku, quantidade, reservado FROM lotes WHERE validade < {HOJE_SP} AND quantidade > 0"
+
+@app.post("/gerente/estoque/lotes/{lote_id}/baixa")
+def baixa_lote(lote_id: int, u=Depends(exige("gerente"))):
+    with engine.begin() as c:
+        lote = c.execute(text(SQL_VENCIDO + " AND id = :id FOR UPDATE"), {"id": lote_id}).first()
+        if not lote: raise HTTPException(409, "Lote não está vencido ou já está zerado")
+        erro = _baixar_lote(c, lote, u)
+        if erro: raise HTTPException(409, erro)
+        return {"ok": True, "unidades": lote.quantidade}
+
+@app.post("/gerente/estoque/baixar-vencidos")
+def baixar_vencidos(u=Depends(exige("gerente"))):
+    with engine.begin() as c:
+        baixados, unidades, pulados = 0, 0, []
+        for lote in c.execute(text(SQL_VENCIDO + " ORDER BY id FOR UPDATE")).all():
+            erro = _baixar_lote(c, lote, u)
+            if erro: pulados.append(f"{lote.sku}: {erro}")
+            else: baixados += 1; unidades += lote.quantidade
+        return {"ok": True, "lotes": baixados, "unidades": unidades, "pulados": pulados}
+
+@app.post("/gerente/estoque/{sku}/entrada")
+def entrada_mercadoria(sku: str, e: EntradaIn, u=Depends(exige("gerente"))):
+    hoje = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    if e.validade and e.validade < hoje: raise HTTPException(422, "Validade já passou")
+    with engine.begin() as c:
+        if not c.execute(text("SELECT 1 FROM produtos WHERE sku = :s"), {"s": sku}).first(): raise HTTPException(404, "Produto não existe")
+        # lote nasce zerado e a entrada soma pelo mover_estoque (assim o extrato fecha com o saldo)
+        lid = c.execute(text("""INSERT INTO lotes (loja_id, sku, validade, quantidade, reservado)
+                                VALUES ((SELECT MIN(id) FROM lojas), :s, :v, 0, 0) RETURNING id"""), {"s": sku, "v": e.validade}).scalar()
+        mover_estoque(c, lid, "entrada", e.quantidade, "quantidade", funcionario=u["sub"], motivo="recebimento")
+        return {"ok": True, "lote_id": lid}
+
+@app.post("/gerente/estoque/lotes/{lote_id}/ajuste")
+def ajuste_inventario(lote_id: int, a: AjusteIn, u=Depends(exige("gerente"))):
+    with engine.begin() as c:
+        lote = c.execute(text("SELECT quantidade, reservado FROM lotes WHERE id = :id FOR UPDATE"), {"id": lote_id}).first()
+        if not lote: raise HTTPException(404, "Lote não existe")
+        if a.contagem < lote.reservado: raise HTTPException(409, f"Contagem menor que o reservado ({lote.reservado}) de pedidos em aberto")
+        dif = a.contagem - lote.quantidade
+        if dif == 0: raise HTTPException(409, "Contagem igual ao saldo, nada a ajustar")
+        mover_estoque(c, lote_id, "ajuste", dif, "quantidade", funcionario=u["sub"], motivo=a.motivo.strip())
+        return {"ok": True, "diferenca": dif}
+
+@app.patch("/gerente/estoque/{sku}/minimo")
+def editar_minimo(sku: str, m: MinimoIn, u=Depends(exige("gerente"))):
+    with engine.begin() as c:
+        ok = c.execute(text("UPDATE produtos SET estoque_minimo = :m WHERE sku = :s RETURNING sku"), {"m": m.minimo, "s": sku}).first()
+        if not ok: raise HTTPException(404, "Produto não existe")
+        return {"ok": True, "minimo": m.minimo}

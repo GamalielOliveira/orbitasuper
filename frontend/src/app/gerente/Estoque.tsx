@@ -28,32 +28,86 @@ function Cartao({ titulo, valor, sub, ruim }: { titulo: string; valor: string | 
     </div>);
 }
 
-// Detalhe de um produto: lotes + extrato (carrega só quando a linha abre)
-function Detalhe({ sku, token }: { sku: string; token: string }) {
+type Chamar = (caminho: string, metodo: string, corpo?: object) => Promise<Record<string, unknown> | null>;
+const inp = "rounded border px-1.5 py-0.5 text-xs";
+const btn = "rounded border px-2 py-0.5 text-xs font-semibold hover:bg-gray-100 disabled:opacity-40";
+
+// Detalhe de um produto: lotes + ações + extrato (carrega quando a linha abre e após cada ação)
+function Detalhe({ sku, token, minimo, chamar, versao }: { sku: string; token: string; minimo: number; chamar: Chamar; versao: number }) {
   const [d, setD] = useState<{ lotes: Lote[]; movimentacoes: Mov[] } | null>(null);
+  const [ajuste, setAjuste] = useState<{ lote: number; contagem: string; motivo: string } | null>(null);   // lote com o form de inventário aberto
+  const [ent, setEnt] = useState({ quantidade: "", validade: "" });
+  const [min, setMin] = useState(String(minimo));
   useEffect(() => {
     fetch(`${API}/gerente/estoque/${encodeURIComponent(sku)}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null).then(setD);
-  }, [sku, token]);
+  }, [sku, token, versao]);
   if (!d) return <p className="text-xs text-gray-400">Carregando…</p>;
+  const base = `/gerente/estoque/${encodeURIComponent(sku)}`;
+
+  const darBaixa = (l: Lote) => {
+    if (confirm(`Dar baixa de ${l.quantidade} un. do lote #${l.id} (vencido)? Isso registra perda.`)) chamar(`/gerente/estoque/lotes/${l.id}/baixa`, "POST");
+  };
+  const salvarAjuste = async () => {
+    if (!ajuste) return;
+    if (await chamar(`/gerente/estoque/lotes/${ajuste.lote}/ajuste`, "POST", { contagem: Number(ajuste.contagem), motivo: ajuste.motivo })) setAjuste(null);
+  };
+  const salvarEntrada = async () => {
+    if (await chamar(`${base}/entrada`, "POST", { quantidade: Number(ent.quantidade), validade: ent.validade || null })) setEnt({ quantidade: "", validade: "" });
+  };
+
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
-      <div>
-        <p className="mb-1 text-xs font-bold text-gray-600">Lotes</p>
-        <table className="w-full text-xs">
-          <thead className="text-left text-gray-500"><tr><th>Lote</th><th>Validade</th><th className="text-right">Qtd</th><th className="text-right">Reserv.</th></tr></thead>
-          <tbody>
-            {d.lotes.map(l => (
-              <tr key={l.id} className={`border-t ${l.vencido && l.quantidade > 0 ? "font-semibold text-red-700" : ""}`}>
-                <td className="py-0.5">#{l.id}</td><td>{dataBR(l.validade)}{l.vencido ? " ⚠" : ""}</td>
-                <td className="text-right">{l.quantidade}</td><td className="text-right">{l.reservado}</td>
-              </tr>))}
-          </tbody>
-        </table>
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[400px_1fr]">
+      <div className="space-y-3">
+        <div>
+          <p className="mb-1 text-xs font-bold text-gray-600">Lotes</p>
+          <table className="w-full text-xs">
+            <thead className="text-left text-gray-500"><tr><th>Lote</th><th>Validade</th><th className="text-right">Qtd</th><th className="text-right">Reserv.</th><th /></tr></thead>
+            <tbody>
+              {d.lotes.map(l => (
+                <Fragment key={l.id}>
+                  <tr className={`border-t ${l.vencido && l.quantidade > 0 ? "font-semibold text-red-700" : ""}`}>
+                    <td className="py-0.5">#{l.id}</td><td>{dataBR(l.validade)}{l.vencido ? " ⚠" : ""}</td>
+                    <td className="text-right">{l.quantidade}</td><td className="text-right">{l.reservado}</td>
+                    <td className="space-x-1 pl-2 text-right">
+                      {l.vencido && l.quantidade > 0 && <button onClick={() => darBaixa(l)} className={`${btn} border-red-300 text-red-700`}>Dar baixa</button>}
+                      <button onClick={() => setAjuste(a => a?.lote === l.id ? null : { lote: l.id, contagem: String(l.quantidade), motivo: "" })} className={btn}>Ajustar</button>
+                    </td>
+                  </tr>
+                  {/* Ajuste de inventário: informa a contagem física; a diferença vai pro extrato */}
+                  {ajuste?.lote === l.id && (
+                    <tr><td colSpan={5} className="bg-white py-1">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span>Contagem:</span>
+                        <input type="number" min={l.reservado} value={ajuste.contagem} onChange={e => setAjuste({ ...ajuste, contagem: e.target.value })} className={`${inp} w-16`} />
+                        <input value={ajuste.motivo} onChange={e => setAjuste({ ...ajuste, motivo: e.target.value })} placeholder="Motivo (obrigatório)" className={`${inp} flex-1`} />
+                        <button disabled={ajuste.motivo.trim().length < 3 || ajuste.contagem === ""} onClick={salvarAjuste} className={btn}>Salvar</button>
+                      </div>
+                      {l.reservado > 0 && <p className="text-[10px] text-gray-400">Mínimo {l.reservado} (reservado para pedidos em aberto)</p>}
+                    </td></tr>)}
+                </Fragment>))}
+            </tbody>
+          </table>
+        </div>
+        {/* Entrada de mercadoria: cria um lote novo */}
+        <div className="rounded border bg-white p-2 text-xs">
+          <p className="mb-1 font-bold text-gray-600">Entrada de mercadoria</p>
+          <div className="flex flex-wrap items-center gap-1">
+            <input type="number" min={1} value={ent.quantidade} onChange={e => setEnt({ ...ent, quantidade: e.target.value })} placeholder="Qtd" className={`${inp} w-16`} />
+            <input type="date" value={ent.validade} onChange={e => setEnt({ ...ent, validade: e.target.value })} className={inp} title="Validade (opcional)" />
+            <button disabled={!(Number(ent.quantidade) > 0)} onClick={salvarEntrada} className={btn}>Registrar</button>
+          </div>
+        </div>
+        {/* Estoque mínimo: abaixo disso aparece como "baixo" */}
+        <div className="flex items-center gap-1 text-xs">
+          <span className="font-bold text-gray-600">Estoque mínimo:</span>
+          <input type="number" min={0} value={min} onChange={e => setMin(e.target.value)} className={`${inp} w-16`} />
+          <button disabled={min === "" || Number(min) === minimo} onClick={() => chamar(`${base}/minimo`, "PATCH", { minimo: Number(min) })} className={btn}>Salvar</button>
+        </div>
       </div>
       <div>
         <p className="mb-1 text-xs font-bold text-gray-600">Extrato (últimas 50)</p>
-        <div className="max-h-64 overflow-y-auto">
+        <div className="max-h-72 overflow-y-auto">
           <table className="w-full whitespace-nowrap text-xs">
             <thead className="sticky top-0 bg-gray-50 text-left text-gray-500"><tr><th>Hora</th><th>Lote</th><th>Tipo</th><th className="text-right">Qtd</th><th className="text-right">Saldo</th><th className="text-right">Reserv.</th><th className="pl-2">Pedido</th><th>Func.</th><th>Motivo</th></tr></thead>
             <tbody>
@@ -83,12 +137,36 @@ export default function Estoque({ token }: { token: string }) {
   const [pag, setPag] = useState(0);
   const [ordem, setOrdem] = useState<{ col: Col; asc: boolean }>({ col: "situacao", asc: true });
   const [aberto, setAberto] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ txt: string; erro: boolean } | null>(null);
+  const [versao, setVersao] = useState(0);   // muda após cada ação para recarregar o detalhe
 
   const carregar = useCallback(async () => {
     const r = await fetch(`${API}/gerente/estoque`, { headers: { Authorization: `Bearer ${token}` } });
     if (r.ok) setD(await r.json());
   }, [token]);
   useEffect(() => { carregar(); const t = setInterval(carregar, 60000); return () => clearInterval(t); }, [carregar]);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 5000); return () => clearTimeout(t); }, [toast]);
+
+  // Chama uma ação do gerente; mostra aviso e recarrega tudo se deu certo
+  const chamar: Chamar = useCallback(async (caminho, metodo, corpo) => {
+    const r = await fetch(`${API}${caminho}`, { method: metodo, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: corpo ? JSON.stringify(corpo) : undefined });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const det = Array.isArray(j.detail) ? "Dados inválidos" : (j.detail ?? `Erro ${r.status}`);
+      setToast({ txt: det, erro: true }); return null;
+    }
+    setToast({ txt: "Feito ✔", erro: false }); setVersao(v => v + 1); carregar();
+    return j;
+  }, [token, carregar]);
+
+  const baixarTodos = async () => {
+    if (!confirm("Dar baixa (perda) em TODOS os lotes vencidos? Lotes com reserva serão pulados.")) return;
+    const j = await chamar("/gerente/estoque/baixar-vencidos", "POST");
+    if (j) {
+      const pulados = (j.pulados as string[]) ?? [];
+      setToast({ txt: `${j.lotes} lote(s), ${j.unidades} un. baixadas${pulados.length ? ` · pulados: ${pulados.join("; ")}` : ""}`, erro: pulados.length > 0 });
+    }
+  };
 
   const categorias = useMemo(() => d ? [...new Set(d.produtos.map(p => p.categoria))].sort() : [], [d]);
   const filtrados = useMemo(() => {
@@ -116,10 +194,15 @@ export default function Estoque({ token }: { token: string }) {
 
   return (
     <div className="space-y-4">
+      {/* Aviso rápido (some sozinho) */}
+      {toast && <div className={`fixed bottom-4 right-4 z-50 max-w-md rounded-lg px-4 py-2 text-sm text-white shadow-lg ${toast.erro ? "bg-red-700" : "bg-green-700"}`}>{toast.txt}</div>}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Cartao titulo="Zerados" valor={k.zerados} ruim={k.zerados > 0} sub="sem saldo livre" />
         <Cartao titulo="Abaixo do mínimo" valor={k.abaixo_minimo} ruim={k.abaixo_minimo > 0} />
-        <Cartao titulo="Lotes vencidos" valor={`${k.vencidos_un} un.`} sub={brl(k.vencidos_valor)} ruim={k.vencidos_un > 0} />
+        <div className="relative">
+          <Cartao titulo="Lotes vencidos" valor={`${k.vencidos_un} un.`} sub={brl(k.vencidos_valor)} ruim={k.vencidos_un > 0} />
+          {k.vencidos_un > 0 && <button onClick={baixarTodos} className="absolute right-2 top-2 rounded bg-red-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-red-700">Baixar todos vencidos</button>}
+        </div>
         <Cartao titulo="Vencendo em 3 dias" valor={k.vencendo} sub="produtos" ruim={k.vencendo > 0} />
       </div>
 
@@ -161,7 +244,7 @@ export default function Estoque({ token }: { token: string }) {
                     <td className="px-3">{dataBR(p.validade)}</td>
                     <td className="px-3"><span className={`rounded-full px-2 py-0.5 text-xs ${SIT[p.situacao][1]}`}>{SIT[p.situacao][0]}</span></td>
                   </tr>
-                  {aberto === p.sku && <tr><td colSpan={9} className="bg-gray-50 px-6 py-3"><Detalhe sku={p.sku} token={token} /></td></tr>}
+                  {aberto === p.sku && <tr><td colSpan={9} className="bg-gray-50 px-6 py-3"><Detalhe key={p.sku} sku={p.sku} token={token} minimo={p.minimo} chamar={chamar} versao={versao} /></td></tr>}
                 </Fragment>))}
               {!pagina.length && <tr><td colSpan={9} className="p-4 text-center text-gray-400">{todos || sit ? "Nada encontrado." : "Tudo OK por aqui. 🎉 Marque “mostrar todos” para ver o estoque inteiro."}</td></tr>}
             </tbody>
