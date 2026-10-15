@@ -1,0 +1,1165 @@
+[
+ {
+  "matricula": "5001",
+  "nome": "Geraldo Carvalho Teixeira",
+  "rua": "Avenida Érico Veríssimo",
+  "num": "2367",
+  "bairro": "Santa Mônica",
+  "cep": "31525-380",
+  "lat": -19.8239428,
+  "lon": -43.9793655,
+  "dist_km": 0.42,
+  "perfil": {
+   "pedidos_semana": 0.51,
+   "categorias": [
+    "Hortifruti",
+    "Padaria",
+    "Cervejas e Drinks"
+   ],
+   "ticket_medio": 77.95,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5002",
+  "nome": "João Pedro Dias Costa",
+  "rua": "Rua Humberto de Campos",
+  "num": "581",
+  "bairro": "Jardim Leblon",
+  "cep": "31540-360",
+  "lat": -19.829935,
+  "lon": -43.9873767,
+  "dist_km": 1.89,
+  "perfil": {
+   "pedidos_semana": 0.79,
+   "categorias": [
+    "Biscoitos e Salgadinhos",
+    "Padaria",
+    "Higiene e Beleza"
+   ],
+   "ticket_medio": 77.46,
+   "faixas": [
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5003",
+  "nome": "Tatiane Rodrigues Gomes",
+  "rua": "Rua Norma",
+  "num": "66",
+  "bairro": "Piratininga",
+  "cep": "31573-506",
+  "lat": -19.8159562,
+  "lon": -43.9920361,
+  "dist_km": 1.9,
+  "perfil": {
+   "pedidos_semana": 0.84,
+   "categorias": [
+    "Bebidas",
+    "Congelados",
+    "Laticínios",
+    "Molhos e Conservas"
+   ],
+   "ticket_medio": 93.41,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5004",
+  "nome": "Kléber Fonseca Rezende",
+  "rua": "Rua Conceição dos Ouros",
+  "num": "231",
+  "bairro": "Jardim Leblon",
+  "cep": "31573-506",
+  "lat": -19.8229173,
+  "lon": -43.9942297,
+  "dist_km": 1.69,
+  "perfil": {
+   "pedidos_semana": 0.66,
+   "categorias": [
+    "Bebidas",
+    "Biscoitos e Salgadinhos",
+    "Vinhos e Espumantes"
+   ],
+   "ticket_medio": 95.39,
+   "faixas": [
+    "tarde",
+    "manha"
+   ]
+  }
+ },
+ {
+  "matricula": "5005",
+  "nome": "Karina Rodrigues Souza",
+  "rua": "Rua Inglaterra",
+  "num": "410",
+  "bairro": "Jardim Leblon",
+  "cep": "31540-360",
+  "lat": -19.8297266,
+  "lon": -43.9869945,
+  "dist_km": 1.78,
+  "perfil": {
+   "pedidos_semana": 0.25,
+   "categorias": [
+    "Vinhos e Espumantes",
+    "Hortifruti"
+   ],
+   "ticket_medio": 108.88,
+   "faixas": [
+    "almoco",
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5006",
+  "nome": "Eliane Silva Dias",
+  "rua": "Rua Farmacêutico Raul Machado",
+  "num": "139",
+  "bairro": "Candelária",
+  "cep": "31535-670",
+  "lat": -19.8130771,
+  "lon": -43.9711467,
+  "dist_km": 1.91,
+  "perfil": {
+   "pedidos_semana": 0.32,
+   "categorias": [
+    "Chocolates e Doces",
+    "Bebidas"
+   ],
+   "ticket_medio": 144.36,
+   "faixas": [
+    "almoco"
+   ]
+  }
+ },
+ {
+  "matricula": "5007",
+  "nome": "Simone Barros Cardoso",
+  "rua": "Rua Coronel Joaquim dos Santos",
+  "num": "250",
+  "bairro": "Céu Azul",
+  "cep": "31580-050",
+  "lat": -19.8239981,
+  "lon": -44.0006979,
+  "dist_km": 2.88,
+  "perfil": {
+   "pedidos_semana": 3.76,
+   "categorias": [
+    "Limpeza",
+    "Biscoitos e Salgadinhos"
+   ],
+   "ticket_medio": 40.48,
+   "faixas": [
+    "tarde",
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5008",
+  "nome": "Henrique Ribeiro Moura",
+  "rua": "Rua José Fernandes dos Reis",
+  "num": "178",
+  "bairro": "Santa Mônica",
+  "cep": "31525-380",
+  "lat": -19.8252322,
+  "lon": -43.9752274,
+  "dist_km": 1.04,
+  "perfil": {
+   "pedidos_semana": 0.71,
+   "categorias": [
+    "Sorvetes e Açaí",
+    "Bebidas",
+    "Chocolates e Doces"
+   ],
+   "ticket_medio": 90.47,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5009",
+  "nome": "Helena Mendes Dias",
+  "rua": "Rua Estela",
+  "num": "555",
+  "bairro": "Piratininga",
+  "cep": "31573-506",
+  "lat": -19.8160164,
+  "lon": -43.9898649,
+  "dist_km": 1.64,
+  "perfil": {
+   "pedidos_semana": 1.26,
+   "categorias": [
+    "Açougue e Peixaria",
+    "Padaria"
+   ],
+   "ticket_medio": 41.51,
+   "faixas": [
+    "noite",
+    "manha"
+   ]
+  }
+ },
+ {
+  "matricula": "5010",
+  "nome": "Ricardo Mendes Santos",
+  "rua": "Rua Barroso",
+  "num": "471",
+  "bairro": "Venda Nova",
+  "cep": "31615-250",
+  "lat": -19.8126159,
+  "lon": -43.9604838,
+  "dist_km": 3.78,
+  "perfil": {
+   "pedidos_semana": 1.33,
+   "categorias": [
+    "Açougue e Peixaria",
+    "Chocolates e Doces",
+    "Biscoitos e Salgadinhos"
+   ],
+   "ticket_medio": 89.45,
+   "faixas": [
+    "almoco",
+    "manha"
+   ]
+  }
+ },
+ {
+  "matricula": "5011",
+  "nome": "João Pedro Andrade Cavalcanti",
+  "rua": "Rua Coronel Antônio Lopes Coelho",
+  "num": "92",
+  "bairro": "Jardim Leblon",
+  "cep": "31580-050",
+  "lat": -19.8262471,
+  "lon": -43.9935617,
+  "dist_km": 1.97,
+  "perfil": {
+   "pedidos_semana": 0.42,
+   "categorias": [
+    "Molhos e Conservas",
+    "Bebidas",
+    "Açougue e Peixaria"
+   ],
+   "ticket_medio": 111.99,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5012",
+  "nome": "Fabiana Fernandes Andrade",
+  "rua": "Rua Radialista Antônio Bárbara",
+  "num": "22",
+  "bairro": "Céu Azul",
+  "cep": "31580-050",
+  "lat": -19.8224088,
+  "lon": -43.9986802,
+  "dist_km": 2.64,
+  "perfil": {
+   "pedidos_semana": 0.62,
+   "categorias": [
+    "Hortifruti",
+    "Saudáveis",
+    "Limpeza",
+    "Biscoitos e Salgadinhos"
+   ],
+   "ticket_medio": 66.92,
+   "faixas": [
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5013",
+  "nome": "Priscila Batista Lima",
+  "rua": "Rua Ferna Tamieti",
+  "num": "816",
+  "bairro": "Venda Nova",
+  "cep": "31615-250",
+  "lat": -19.8185776,
+  "lon": -43.9581334,
+  "dist_km": 3.07,
+  "perfil": {
+   "pedidos_semana": 0.54,
+   "categorias": [
+    "Cervejas e Drinks",
+    "Vinhos e Espumantes",
+    "Sorvetes e Açaí"
+   ],
+   "ticket_medio": 107.57,
+   "faixas": [
+    "noite",
+    "almoco"
+   ]
+  }
+ },
+ {
+  "matricula": "5014",
+  "nome": "Paulo Cardoso Andrade",
+  "rua": "Rua Antônio Orlindo de Castro",
+  "num": "242",
+  "bairro": "São João Batista",
+  "cep": "31520-400",
+  "lat": -19.8234097,
+  "lon": -43.9666912,
+  "dist_km": 2.03,
+  "perfil": {
+   "pedidos_semana": 0.45,
+   "categorias": [
+    "Cervejas e Drinks",
+    "Açougue e Peixaria"
+   ],
+   "ticket_medio": 44.55,
+   "faixas": [
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5015",
+  "nome": "Simone Moreira Dias",
+  "rua": "Rua Jaguara",
+  "num": "420",
+  "bairro": "Céu Azul",
+  "cep": "31585-020",
+  "lat": -19.8248744,
+  "lon": -44.0036391,
+  "dist_km": 3.19,
+  "perfil": {
+   "pedidos_semana": 0.12,
+   "categorias": [
+    "Limpeza",
+    "Biscoitos e Salgadinhos",
+    "Vinhos e Espumantes"
+   ],
+   "ticket_medio": 93.8,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5016",
+  "nome": "Vinícius Lacerda Mendes",
+  "rua": "Rua Santa Cruz",
+  "num": "495",
+  "bairro": "Venda Nova",
+  "cep": "31615-250",
+  "lat": -19.8150338,
+  "lon": -43.9620462,
+  "dist_km": 2.5,
+  "perfil": {
+   "pedidos_semana": 2.15,
+   "categorias": [
+    "Bebidas",
+    "Laticínios",
+    "Molhos e Conservas",
+    "Padaria"
+   ],
+   "ticket_medio": 157.88,
+   "faixas": [
+    "manha"
+   ]
+  }
+ },
+ {
+  "matricula": "5017",
+  "nome": "Sabrina Mendes Oliveira",
+  "rua": "Praça José Belém Barbosa",
+  "num": "261",
+  "bairro": "São João Batista",
+  "cep": "31565-180",
+  "lat": -19.8268269,
+  "lon": -43.963318,
+  "dist_km": 2.65,
+  "perfil": {
+   "pedidos_semana": 0.92,
+   "categorias": [
+    "Limpeza",
+    "Padaria",
+    "Biscoitos e Salgadinhos"
+   ],
+   "ticket_medio": 75.28,
+   "faixas": [
+    "manha"
+   ]
+  }
+ },
+ {
+  "matricula": "5018",
+  "nome": "Paulo Silva Drummond",
+  "rua": "Rua Avelino Giarola",
+  "num": "320",
+  "bairro": "Céu Azul",
+  "cep": "31580-050",
+  "lat": -19.824663,
+  "lon": -44.0003138,
+  "dist_km": 2.89,
+  "perfil": {
+   "pedidos_semana": 0.37,
+   "categorias": [
+    "Higiene e Beleza",
+    "Laticínios",
+    "Padaria",
+    "Bebidas"
+   ],
+   "ticket_medio": 107.44,
+   "faixas": [
+    "manha"
+   ]
+  }
+ },
+ {
+  "matricula": "5019",
+  "nome": "Wagner Silva Pinto",
+  "rua": "Rua das Missões",
+  "num": "679",
+  "bairro": "Candelária",
+  "cep": "31570-010",
+  "lat": -19.8081439,
+  "lon": -43.9703512,
+  "dist_km": 2.57,
+  "perfil": {
+   "pedidos_semana": 1.16,
+   "categorias": [
+    "Laticínios",
+    "Higiene e Beleza",
+    "Limpeza"
+   ],
+   "ticket_medio": 96.83,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5020",
+  "nome": "Alexandre Pereira Moura",
+  "rua": "Rua Torremolinos",
+  "num": "807",
+  "bairro": "Candelária",
+  "cep": "31570-010",
+  "lat": -19.8079831,
+  "lon": -43.9686477,
+  "dist_km": 2.8,
+  "perfil": {
+   "pedidos_semana": 1.87,
+   "categorias": [
+    "Limpeza",
+    "Bebidas",
+    "Destilados"
+   ],
+   "ticket_medio": 145.21,
+   "faixas": [
+    "tarde",
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5021",
+  "nome": "Mateus Barbosa Costa",
+  "rua": "Rua Maria Geralda Lopes",
+  "num": "412",
+  "bairro": "Candelária",
+  "cep": "31520-400",
+  "lat": -19.8128356,
+  "lon": -43.9756738,
+  "dist_km": 1.28,
+  "perfil": {
+   "pedidos_semana": 0.8,
+   "categorias": [
+    "Molhos e Conservas",
+    "Biscoitos e Salgadinhos",
+    "Padaria"
+   ],
+   "ticket_medio": 91.43,
+   "faixas": [
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5022",
+  "nome": "Alexandre Vieira Cavalcanti",
+  "rua": "Rua Clarice Lispector",
+  "num": "208",
+  "bairro": "São João Batista",
+  "cep": "31520-400",
+  "lat": -19.8197008,
+  "lon": -43.9713574,
+  "dist_km": 1.24,
+  "perfil": {
+   "pedidos_semana": 1.75,
+   "categorias": [
+    "Padaria",
+    "Destilados",
+    "Chocolates e Doces",
+    "Laticínios"
+   ],
+   "ticket_medio": 151.39,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5023",
+  "nome": "Tatiane Freitas Almeida",
+  "rua": "Rua Atacamita",
+  "num": "449",
+  "bairro": "Candelária",
+  "cep": "31570-000",
+  "lat": -19.8107752,
+  "lon": -43.9767088,
+  "dist_km": 1.44,
+  "perfil": {
+   "pedidos_semana": 1.38,
+   "categorias": [
+    "Biscoitos e Salgadinhos",
+    "Limpeza"
+   ],
+   "ticket_medio": 136.01,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5024",
+  "nome": "Vitória Fonseca Cardoso",
+  "rua": "Rua Ladainha",
+  "num": "759",
+  "bairro": "Jardim Leblon",
+  "cep": "31540-360",
+  "lat": -19.8240785,
+  "lon": -43.9868701,
+  "dist_km": 1.14,
+  "perfil": {
+   "pedidos_semana": 5.03,
+   "categorias": [
+    "Laticínios",
+    "Açougue e Peixaria",
+    "Hortifruti"
+   ],
+   "ticket_medio": 184.65,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5025",
+  "nome": "Paulo Rezende Moreira",
+  "rua": "Rua Eliza",
+  "num": "499",
+  "bairro": "Piratininga",
+  "cep": "31573-506",
+  "lat": -19.8168121,
+  "lon": -43.9905229,
+  "dist_km": 1.79,
+  "perfil": {
+   "pedidos_semana": 0.64,
+   "categorias": [
+    "Chocolates e Doces",
+    "Laticínios",
+    "Vinhos e Espumantes"
+   ],
+   "ticket_medio": 95.56,
+   "faixas": [
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5026",
+  "nome": "Ricardo Magalhães Dias",
+  "rua": "Rua Radialista José Baluarte",
+  "num": "115",
+  "bairro": "Céu Azul",
+  "cep": "31580-050",
+  "lat": -19.8221478,
+  "lon": -44.0000832,
+  "dist_km": 2.77,
+  "perfil": {
+   "pedidos_semana": 1.76,
+   "categorias": [
+    "Saudáveis",
+    "Laticínios"
+   ],
+   "ticket_medio": 155.39,
+   "faixas": [
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5027",
+  "nome": "Cristina Santos Gomes",
+  "rua": "Rua Pedra Brilhante",
+  "num": "760",
+  "bairro": "Piratininga",
+  "cep": "31573-506",
+  "lat": -19.810992,
+  "lon": -43.9898013,
+  "dist_km": 2.01,
+  "perfil": {
+   "pedidos_semana": 0.8,
+   "categorias": [
+    "Higiene e Beleza",
+    "Limpeza"
+   ],
+   "ticket_medio": 59.13,
+   "faixas": [
+    "noite",
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5028",
+  "nome": "Emerson Gomes Drummond",
+  "rua": "Praça Cultura Racional",
+  "num": "222",
+  "bairro": "São João Batista",
+  "cep": "31520-400",
+  "lat": -19.8163037,
+  "lon": -43.9681322,
+  "dist_km": 1.85,
+  "perfil": {
+   "pedidos_semana": 1.35,
+   "categorias": [
+    "Padaria",
+    "Bebidas",
+    "Vinhos e Espumantes",
+    "Limpeza"
+   ],
+   "ticket_medio": 93.41,
+   "faixas": [
+    "manha"
+   ]
+  }
+ },
+ {
+  "matricula": "5029",
+  "nome": "Priscila Teixeira Freitas",
+  "rua": "Rua Lourdes Paula Cordeiro",
+  "num": "354",
+  "bairro": "Venda Nova",
+  "cep": "31615-250",
+  "lat": -19.8148772,
+  "lon": -43.9599063,
+  "dist_km": 2.76,
+  "perfil": {
+   "pedidos_semana": 0.41,
+   "categorias": [
+    "Laticínios",
+    "Higiene e Beleza",
+    "Cervejas e Drinks"
+   ],
+   "ticket_medio": 129.41,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5030",
+  "nome": "Letícia Ribeiro Cardoso",
+  "rua": "Rua Monsenhor José Coelho",
+  "num": "387",
+  "bairro": "São João Batista",
+  "cep": "31615-250",
+  "lat": -19.8162519,
+  "lon": -43.9641786,
+  "dist_km": 2.29,
+  "perfil": {
+   "pedidos_semana": 1.7,
+   "categorias": [
+    "Laticínios",
+    "Saudáveis",
+    "Biscoitos e Salgadinhos",
+    "Bebidas"
+   ],
+   "ticket_medio": 89.9,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5031",
+  "nome": "João Pedro Mendes Teixeira",
+  "rua": "Rua K",
+  "num": "154",
+  "bairro": "Candelária",
+  "cep": "31570-010",
+  "lat": -19.8122669,
+  "lon": -43.9671004,
+  "dist_km": 2.15,
+  "perfil": {
+   "pedidos_semana": 0.49,
+   "categorias": [
+    "Bebidas",
+    "Pets",
+    "Laticínios"
+   ],
+   "ticket_medio": 126.45,
+   "faixas": [
+    "almoco",
+    "manha"
+   ]
+  }
+ },
+ {
+  "matricula": "5032",
+  "nome": "Igor Moreira Moura",
+  "rua": "Rua Steria Soares da Silva",
+  "num": "634",
+  "bairro": "São João Batista",
+  "cep": "31744-144",
+  "lat": -19.8245183,
+  "lon": -43.9595623,
+  "dist_km": 3.24,
+  "perfil": {
+   "pedidos_semana": 1.02,
+   "categorias": [
+    "Bebidas",
+    "Churrasco"
+   ],
+   "ticket_medio": 136.32,
+   "faixas": [
+    "almoco"
+   ]
+  }
+ },
+ {
+  "matricula": "5033",
+  "nome": "Isabela Batista Gomes",
+  "rua": "Rua Ignacinho Alvarenga",
+  "num": "625",
+  "bairro": "Venda Nova",
+  "cep": "31615-250",
+  "lat": -19.813942,
+  "lon": -43.9581463,
+  "dist_km": 4.12,
+  "perfil": {
+   "pedidos_semana": 0.93,
+   "categorias": [
+    "Mercearia",
+    "Higiene e Beleza",
+    "Hortifruti"
+   ],
+   "ticket_medio": 105.85,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5034",
+  "nome": "João Pedro Carvalho Lima",
+  "rua": "Avenida Vilarinho",
+  "num": "1755",
+  "bairro": "Venda Nova",
+  "cep": "31615-250",
+  "lat": -19.8134427,
+  "lon": -43.9575505,
+  "dist_km": 4.06,
+  "perfil": {
+   "pedidos_semana": 0.73,
+   "categorias": [
+    "Açougue e Peixaria",
+    "Vinhos e Espumantes"
+   ],
+   "ticket_medio": 66.22,
+   "faixas": [
+    "tarde",
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5035",
+  "nome": "Isabela Alves Rezende",
+  "rua": "Rua Paulino Caetano Mendes",
+  "num": "198",
+  "bairro": "Céu Azul",
+  "cep": "31580-050",
+  "lat": -19.8263893,
+  "lon": -43.9982791,
+  "dist_km": 2.46,
+  "perfil": {
+   "pedidos_semana": 1.17,
+   "categorias": [
+    "Laticínios",
+    "Padaria",
+    "Bebidas"
+   ],
+   "ticket_medio": 91.49,
+   "faixas": [
+    "manha",
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5036",
+  "nome": "Beatriz Mendes Martins",
+  "rua": "Rua Central",
+  "num": "836",
+  "bairro": "Jardim Leblon",
+  "cep": "31540-360",
+  "lat": -19.8294702,
+  "lon": -43.9882627,
+  "dist_km": 1.9,
+  "perfil": {
+   "pedidos_semana": 1.22,
+   "categorias": [
+    "Laticínios",
+    "Bebidas",
+    "Mercearia"
+   ],
+   "ticket_medio": 65.08,
+   "faixas": [
+    "manha"
+   ]
+  }
+ },
+ {
+  "matricula": "5037",
+  "nome": "Daniela Rodrigues Barbosa",
+  "rua": "Rua Lindoia",
+  "num": "120",
+  "bairro": "Piratininga",
+  "cep": "31680-120",
+  "lat": -19.8070043,
+  "lon": -43.9869487,
+  "dist_km": 2.2,
+  "perfil": {
+   "pedidos_semana": 1.78,
+   "categorias": [
+    "Saudáveis",
+    "Molhos e Conservas",
+    "Laticínios"
+   ],
+   "ticket_medio": 168.08,
+   "faixas": [
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5038",
+  "nome": "Karina Rocha Martins",
+  "rua": "Rua Santa Mônica",
+  "num": "419",
+  "bairro": "Santa Mônica",
+  "cep": "31520-400",
+  "lat": -19.818688,
+  "lon": -43.9744662,
+  "dist_km": 0.91,
+  "perfil": {
+   "pedidos_semana": 1.98,
+   "categorias": [
+    "Utilidades",
+    "Laticínios",
+    "Bebê"
+   ],
+   "ticket_medio": 148.42,
+   "faixas": [
+    "almoco",
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5039",
+  "nome": "Paulo Campos Andrade",
+  "rua": "Rua Aluizo de Azevedo",
+  "num": "80",
+  "bairro": "Santa Mônica",
+  "cep": "31525-410",
+  "lat": -19.8200529,
+  "lon": -43.975481,
+  "dist_km": 0.8,
+  "perfil": {
+   "pedidos_semana": 1.85,
+   "categorias": [
+    "Higiene e Beleza",
+    "Mercearia"
+   ],
+   "ticket_medio": 65.67,
+   "faixas": [
+    "almoco"
+   ]
+  }
+ },
+ {
+  "matricula": "5040",
+  "nome": "Helena Fernandes Gomes",
+  "rua": "Rua Silva Xavier",
+  "num": "209",
+  "bairro": "Jardim Leblon",
+  "cep": "31540-360",
+  "lat": -19.8268477,
+  "lon": -43.9866842,
+  "dist_km": 1.22,
+  "perfil": {
+   "pedidos_semana": 0.67,
+   "categorias": [
+    "Chocolates e Doces",
+    "Bebidas"
+   ],
+   "ticket_medio": 95.36,
+   "faixas": [
+    "noite",
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5041",
+  "nome": "André Silva Teixeira",
+  "rua": "Rua Osasco",
+  "num": "167",
+  "bairro": "Piratininga",
+  "cep": "31660-050",
+  "lat": -19.8059266,
+  "lon": -43.984967,
+  "dist_km": 2.19,
+  "perfil": {
+   "pedidos_semana": 1.55,
+   "categorias": [
+    "Chocolates e Doces",
+    "Saudáveis",
+    "Churrasco"
+   ],
+   "ticket_medio": 77.92,
+   "faixas": [
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5042",
+  "nome": "Vinícius Andrade Barros",
+  "rua": "Rua Paulo Gonçalves",
+  "num": "836",
+  "bairro": "Santa Mônica",
+  "cep": "31520-400",
+  "lat": -19.8150949,
+  "lon": -43.9727603,
+  "dist_km": 1.41,
+  "perfil": {
+   "pedidos_semana": 1.28,
+   "categorias": [
+    "Utilidades",
+    "Chocolates e Doces",
+    "Açougue e Peixaria",
+    "Saudáveis"
+   ],
+   "ticket_medio": 94.66,
+   "faixas": [
+    "almoco"
+   ]
+  }
+ },
+ {
+  "matricula": "5043",
+  "nome": "Gabriela Moura Fonseca",
+  "rua": "Rua Ministro Oliveira Salazar",
+  "num": "1057",
+  "bairro": "Santa Mônica",
+  "cep": "31520-400",
+  "lat": -19.8191848,
+  "lon": -43.9742021,
+  "dist_km": 1.0,
+  "perfil": {
+   "pedidos_semana": 1.3,
+   "categorias": [
+    "Limpeza",
+    "Bebidas",
+    "Padaria"
+   ],
+   "ticket_medio": 74.7,
+   "faixas": [
+    "manha"
+   ]
+  }
+ },
+ {
+  "matricula": "5044",
+  "nome": "Carla Pereira Drummond",
+  "rua": "Rua Lourival Soares Gouveia",
+  "num": "60",
+  "bairro": "Céu Azul",
+  "cep": "31580-050",
+  "lat": -19.8235771,
+  "lon": -44.0015233,
+  "dist_km": 2.92,
+  "perfil": {
+   "pedidos_semana": 1.12,
+   "categorias": [
+    "Padaria",
+    "Vinhos e Espumantes",
+    "Utilidades"
+   ],
+   "ticket_medio": 124.19,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5045",
+  "nome": "Raquel Batista Barros",
+  "rua": "Rua Manoel Guedes Santos",
+  "num": "882",
+  "bairro": "Venda Nova",
+  "cep": "31615-250",
+  "lat": -19.8144659,
+  "lon": -43.9590016,
+  "dist_km": 3.23,
+  "perfil": {
+   "pedidos_semana": 1.29,
+   "categorias": [
+    "Bebidas",
+    "Limpeza",
+    "Padaria"
+   ],
+   "ticket_medio": 53.63,
+   "faixas": [
+    "tarde",
+    "almoco"
+   ]
+  }
+ },
+ {
+  "matricula": "5046",
+  "nome": "Natália Moura Oliveira",
+  "rua": "Rua Jardel Filho",
+  "num": "573",
+  "bairro": "Santa Mônica",
+  "cep": "31525-380",
+  "lat": -19.8237316,
+  "lon": -43.9758343,
+  "dist_km": 1.11,
+  "perfil": {
+   "pedidos_semana": 1.39,
+   "categorias": [
+    "Chocolates e Doces",
+    "Biscoitos e Salgadinhos",
+    "Congelados",
+    "Bebidas"
+   ],
+   "ticket_medio": 86.58,
+   "faixas": [
+    "manha",
+    "tarde"
+   ]
+  }
+ },
+ {
+  "matricula": "5047",
+  "nome": "Mateus Pereira Andrade",
+  "rua": "Rua Rosinha Cadar",
+  "num": "622",
+  "bairro": "São João Batista",
+  "cep": "31565-180",
+  "lat": -19.8252221,
+  "lon": -43.9660163,
+  "dist_km": 2.18,
+  "perfil": {
+   "pedidos_semana": 0.66,
+   "categorias": [
+    "Chocolates e Doces",
+    "Molhos e Conservas",
+    "Laticínios"
+   ],
+   "ticket_medio": 118.42,
+   "faixas": [
+    "almoco"
+   ]
+  }
+ },
+ {
+  "matricula": "5048",
+  "nome": "Igor Alves Pinto",
+  "rua": "Rua Cruzilia",
+  "num": "849",
+  "bairro": "Piratininga",
+  "cep": "31573-506",
+  "lat": -19.8196955,
+  "lon": -43.9885041,
+  "dist_km": 1.25,
+  "perfil": {
+   "pedidos_semana": 3.85,
+   "categorias": [
+    "Biscoitos e Salgadinhos",
+    "Padaria",
+    "Molhos e Conservas",
+    "Bebidas"
+   ],
+   "ticket_medio": 53.8,
+   "faixas": [
+    "noite",
+    "almoco"
+   ]
+  }
+ },
+ {
+  "matricula": "5049",
+  "nome": "Emerson Batista Oliveira",
+  "rua": "Rua Radialista Anete Araújo",
+  "num": "335",
+  "bairro": "Céu Azul",
+  "cep": "31585-020",
+  "lat": -19.8264574,
+  "lon": -44.0032778,
+  "dist_km": 2.99,
+  "perfil": {
+   "pedidos_semana": 1.58,
+   "categorias": [
+    "Hortifruti",
+    "Bebidas"
+   ],
+   "ticket_medio": 43.26,
+   "faixas": [
+    "noite"
+   ]
+  }
+ },
+ {
+  "matricula": "5050",
+  "nome": "Sabrina Pereira Rezende",
+  "rua": "Rua Desembargador Onofre Mendes Júnior",
+  "num": "769",
+  "bairro": "Candelária",
+  "cep": "31535-670",
+  "lat": -19.8145757,
+  "lon": -43.9743645,
+  "dist_km": 1.24,
+  "perfil": {
+   "pedidos_semana": 1.1,
+   "categorias": [
+    "Açougue e Peixaria",
+    "Higiene e Beleza"
+   ],
+   "ticket_medio": 150.77,
+   "faixas": [
+    "almoco",
+    "tarde"
+   ]
+  }
+ }
+]

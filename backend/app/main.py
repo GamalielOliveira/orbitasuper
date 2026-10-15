@@ -248,6 +248,8 @@ class LoginIn(BaseModel):
 def login(d: LoginIn):
     with engine.connect() as c:
         f = c.execute(text("SELECT matricula, nome, funcao, pin_hash FROM funcionarios WHERE matricula = :m AND ativo"), {"m": d.matricula}).first()
+        if not f:  # não é funcionário: tenta cliente (login da loja)
+            f = c.execute(text("SELECT matricula, nome, 'cliente' AS funcao, pin_hash FROM clientes WHERE matricula = :m AND ativo"), {"m": d.matricula}).first()
     if not f or not confere_pin(d.pin, f.pin_hash):
         raise HTTPException(401, "Matrícula ou PIN inválidos")
     return {"token": gera_token(f.matricula, f.nome, f.funcao), "nome": f.nome, "funcao": f.funcao}
