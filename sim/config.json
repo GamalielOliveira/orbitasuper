@@ -1,0 +1,18 @@
+{
+  "fuso": "America/Sao_Paulo",
+  "loja": {
+    "seg": ["07:00", "22:00"], "ter": ["07:00", "22:00"], "qua": ["07:00", "22:00"],
+    "qui": ["07:00", "22:00"], "sex": ["07:00", "22:00"], "sab": ["07:00", "22:00"],
+    "dom": ["08:00", "22:00"]
+  },
+  "turnos": {
+    "1": {"entrada": "07:00", "saida": "16:00", "entrada_domingo": "08:00", "saida_domingo": "17:00"},
+    "2": {"entrada": "13:00", "saida": "22:00", "entrada_domingo": "13:00", "saida_domingo": "22:00"}
+  },
+  "regras": {
+    "pedidos_so_com_loja_aberta": true,
+    "equipe_so_no_turno": true,
+    "sem_trabalho_no_almoco": true,
+    "nao_simular": ["2001", "9001"]
+  }
+}
