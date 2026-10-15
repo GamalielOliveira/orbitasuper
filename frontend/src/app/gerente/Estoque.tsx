@@ -70,11 +70,13 @@ function Detalhe({ sku, token, minimo, chamar, versao }: { sku: string; token: s
   const entErro = ent.entrada > hoje ? "Entrada no futuro" : "";
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[400px_1fr]">
+    <div className="grid grid-cols-1 gap-x-8 gap-y-4 lg:grid-cols-[minmax(500px,auto)_1fr]">   {/* gap-x-8: espaço entre Lotes e Extrato */}
       <div className="space-y-3">
         <div>
           <p className="mb-1 text-xs font-bold text-gray-600">Lotes</p>
-          <table className="w-full text-xs">
+          {/* [&_td]:px-2 = respiro de 8px em todas as células; min-w evita colunas espremidas */}
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] whitespace-nowrap text-xs [&_td]:px-2 [&_th]:px-2 [&_th]:py-1">
             <thead className="text-left text-gray-500"><tr><th>Lote</th><th>Entrada</th><th>Validade</th><th className="text-right">Qtd</th><th className="text-right">Reserv.</th><th /></tr></thead>
             <tbody>
               {d.lotes.map(l => (
@@ -82,11 +84,11 @@ function Detalhe({ sku, token, minimo, chamar, versao }: { sku: string; token: s
                   <tr className={`border-t ${l.vencido && l.quantidade > 0 ? "font-semibold text-red-700" : ""}`}>
                     <td className="py-0.5">#{l.id}</td><td className="text-gray-500">{dataBR(l.entrada_em)}</td><td>{dataBR(l.validade)}{l.vencido ? " ⚠" : ""}</td>
                     <td className="text-right">{l.quantidade}</td><td className="text-right">{l.reservado}</td>
-                    <td className="space-x-1 pl-2 text-right">
+                    <td className="text-right"><div className="inline-flex gap-1.5">
                       {l.vencido && l.quantidade > 0 && <button onClick={() => darBaixa(l)} className={`${btn} border-red-300 text-red-700`}>Dar baixa</button>}
                       <button onClick={() => setEdVal(x => x?.lote === l.id ? null : { lote: l.id, validade: l.validade ?? "" })} className={btn}>Validade</button>
                       <button onClick={() => setAjuste(a => a?.lote === l.id ? null : { lote: l.id, contagem: String(l.quantidade), motivo: "" })} className={btn}>Ajustar</button>
-                    </td>
+                    </div></td>
                   </tr>
                   {/* Editar validade: fica no extrato como ajuste de 0 un. */}
                   {edVal?.lote === l.id && (
@@ -113,6 +115,7 @@ function Detalhe({ sku, token, minimo, chamar, versao }: { sku: string; token: s
                 </Fragment>))}
             </tbody>
           </table>
+          </div>
         </div>
         {/* Entrada de mercadoria: cria um lote novo */}
         <div className="rounded border bg-white p-2 text-xs">
@@ -138,7 +141,7 @@ function Detalhe({ sku, token, minimo, chamar, versao }: { sku: string; token: s
       <div>
         <p className="mb-1 text-xs font-bold text-gray-600">Extrato (últimas 50)</p>
         <div className="max-h-72 overflow-y-auto">
-          <table className="w-full whitespace-nowrap text-xs">
+          <table className="w-full whitespace-nowrap text-xs [&_td]:px-2 [&_th]:px-2 [&_th]:py-1">
             <thead className="sticky top-0 bg-gray-50 text-left text-gray-500"><tr><th>Hora</th><th>Lote</th><th>Tipo</th><th className="text-right">Qtd</th><th className="text-right">Saldo</th><th className="text-right">Reserv.</th><th className="pl-2">Pedido</th><th>Func.</th><th>Motivo</th></tr></thead>
             <tbody>
               {d.movimentacoes.map(m => (
