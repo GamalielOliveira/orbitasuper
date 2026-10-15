@@ -65,4 +65,5 @@ Domínio definitivo: **super.orbitacode.cloud**. Antes de subir:
 - [x] Simulador de pedidos dentro do backend (`python -m sim.simulador dia|teste|tick|resumo`), config em `backend/sim/config.json`
 - [ ] GPS sintético dos entregadores simulados: rota OSRM loja→cliente, pontos a cada 10 s numa tabela `posicoes_sim`; o painel lê dela quando o entregador é simulado (Traccar continua só para o Carlos)
 - [ ] Cron do modo tempo real (`tick`) com `flock` para não rodar dois ao mesmo tempo
-- [ ] Reposição automática de estoque para a simulação não zerar o catálogo
+- [ ] Reposição automática de estoque para a simulação não zerar o catálogo (100 pedidos/dia ≈ 650–750 unidades/dia saindo)
+- [x] sim4: ticket calibrado (~R$100, teto R$300), máx 3 pedidos/cliente/dia, chegadas suaves, fechamento com drenagem, expirados exatos (8%), 100 pedidos/dia

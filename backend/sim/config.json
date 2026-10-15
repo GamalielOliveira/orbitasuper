@@ -51,43 +51,53 @@
     "nao_simular": [
       "2001",
       "9001"
-    ]
+    ],
+    "fechamento": "sem pedido novo depois do fechamento; quem sai no fechamento (turno 2) termina tudo o que está aberto (até 3 h)"
   },
   "pedidos": {
-    "por_dia": 50,
+    "por_dia": 100,
     "faixas": {
       "manha": {
         "de": "07:00",
         "ate": "11:00",
-        "peso": 1.0,
-        "ticket": 0.85
+        "peso": 0.9,
+        "ticket": 0.9
       },
       "almoco": {
         "de": "11:00",
         "ate": "14:00",
-        "peso": 1.6,
-        "ticket": 1.0
+        "peso": 1.3,
+        "ticket": 1.08
       },
       "tarde": {
         "de": "14:00",
         "ate": "18:00",
         "peso": 1.0,
-        "ticket": 0.85
+        "ticket": 0.92
       },
       "noite": {
         "de": "18:00",
         "ate": "22:00",
-        "peso": 1.9,
-        "ticket": 1.05
+        "peso": 1.3,
+        "ticket": 1.1
       }
     },
+    "_ticket": "multiplicadores são normalizados pelo peso das faixas: a média do dia fica no ticket do cliente (~R$100)",
+    "ticket_teto": 300,
+    "ticket_piso": 25,
+    "ticket_variacao": 0.3,
+    "max_por_cliente_dia": 3,
+    "fator_repeticao": 0.33,
+    "_cliente": "cada pedido a mais do mesmo cliente no dia multiplica a chance dele por 0.33; teto de 3 por dia",
     "prob_expirar": 0.08,
     "prob_recusar": 0.03,
     "pagar_em_seg": [
       30,
       240
     ],
-    "max_itens": 30
+    "max_itens": 30,
+    "folga_fim_hoje_min": 50,
+    "_folga": "no modo 'dia' de HOJE, pedidos só até agora-50min, para dar tempo de tudo terminar"
   },
   "tempos": {
     "separacao_base_seg": 60,
