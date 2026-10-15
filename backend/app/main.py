@@ -7,6 +7,9 @@ from contextlib import asynccontextmanager
 
 EXPIRA_MIN = int(_os.getenv("EXPIRA_MIN", "15"))  # minutos para pagar
 
+# Lote vendável: sem validade ou validade >= hoje (dia de São Paulo). Lote vencido não vende.
+LOTE_VALIDO = "(l.validade IS NULL OR l.validade >= (now() AT TIME ZONE 'America/Sao_Paulo')::date)"
+
 # ---------------- Histórico de estoque ----------------
 # Toda mexida em lotes passa por mover_estoque: altera o saldo e grava uma linha em
 # movimentacoes_estoque com o saldo DEPOIS. Assim dá para saber quem/por que mexeu.
@@ -66,9 +69,6 @@ async def lifespan(app):
 
 app = FastAPI(title="Daki Replica", lifespan=lifespan)
 
-@app.post("/admin/expirar")
-def expirar_agora(minutos: int = EXPIRA_MIN):
-    return {"expirados": expirar_pedidos(minutos)}
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["*"], allow_headers=["*"])
 
@@ -82,7 +82,7 @@ def listar_produtos():
         SELECT p.sku, p.nome, p.categoria, p.preco, p.subcategoria, p.descricao, p.conservacao, p.peso, p.imagem_url, p.preco_original,
                COALESCE(SUM(l.quantidade - l.reservado), 0) AS estoque,
                MIN(l.validade) AS proxima_validade
-        FROM produtos p LEFT JOIN lotes l ON l.sku = p.sku
+        FROM produtos p LEFT JOIN lotes l ON l.sku = p.sku AND (l.validade IS NULL OR l.validade >= (now() AT TIME ZONE 'America/Sao_Paulo')::date)   -- vitrine ignora lote vencido
         GROUP BY p.sku ORDER BY p.categoria, p.nome
     """)
     with engine.connect() as c:
@@ -152,7 +152,7 @@ def criar_pedido(p: PedidoIn):
             lotes = c.execute(text("""
                 SELECT l.id, l.quantidade - l.reservado AS livre, pr.preco
                 FROM lotes l JOIN produtos pr ON pr.sku = l.sku
-                WHERE l.sku = :s AND l.quantidade - l.reservado > 0
+                WHERE l.sku = :s AND l.quantidade - l.reservado > 0 AND (l.validade IS NULL OR l.validade >= (now() AT TIME ZONE 'America/Sao_Paulo')::date)   -- não reserva lote vencido
                 ORDER BY l.validade NULLS LAST
                 FOR UPDATE OF l
             """), {"s": item.sku}).all()
@@ -271,7 +271,7 @@ def detalhe(c, numero):
 
 SQL_SUBS = """
     SELECT p.sku, p.nome, p.imagem_url, p.preco, SUM(l.quantidade-l.reservado) AS estoque
-    FROM produtos p JOIN lotes l ON l.sku=p.sku, produtos o
+    FROM produtos p JOIN lotes l ON l.sku=p.sku AND (l.validade IS NULL OR l.validade >= (now() AT TIME ZONE 'America/Sao_Paulo')::date), produtos o
     WHERE o.sku=:s AND p.sku<>o.sku AND position('_exp-' in p.sku) = 0 {filtro}
       AND (o.conservacao IS NULL OR p.conservacao IS NOT DISTINCT FROM o.conservacao)
     GROUP BY p.sku, o.preco HAVING SUM(l.quantidade-l.reservado)>0
@@ -304,7 +304,7 @@ def concluir(numero: str, itens: list[ItemSep], u=Depends(exige("separador"))):
             if st not in ("separado", "faltando", "substituido"): st = "faltando"
             if st == "substituido":
                 lote = c.execute(text("""SELECT l.id, pr.preco FROM lotes l JOIN produtos pr ON pr.sku=l.sku
-                                         WHERE l.sku=:s AND l.quantidade-l.reservado>=:q
+                                         WHERE l.sku=:s AND l.quantidade-l.reservado>=:q AND (l.validade IS NULL OR l.validade >= (now() AT TIME ZONE 'America/Sao_Paulo')::date)
                                          ORDER BY l.validade NULLS LAST FOR UPDATE OF l LIMIT 1"""), {"s": it.substituto_sku, "q": orig.quantidade}).first()
                 if lote:
                     mover_estoque(c, lote.id, "reserva", orig.quantidade, "reservado", p.id, u["sub"], f"substituto de item {it.id}")
@@ -1042,3 +1042,64 @@ def gerente_vendas(de: date | None = None, ate: date | None = None, u=Depends(ex
         "top_falta": [{"sku": x.sku, "nome": x.nome, "vezes": x.vezes, "unidades": int(x.unidades), "valor": f(x.valor)} for x in top_falta],
         "por_categoria": [{"categoria": x.categoria, "qtd": int(x.qtd), "valor": f(x.valor)} for x in por_cat],
     }
+
+
+# ---------------- Admin ----------------
+@app.post("/admin/expirar")
+def expirar_agora(minutos: int = EXPIRA_MIN, u=Depends(exige("gerente"))):
+    """Expira na hora os pedidos não pagos (antes qualquer um podia chamar; agora só gerente)."""
+    return {"expirados": expirar_pedidos(minutos)}
+
+
+# ---------------- Gerente · estoque ----------------
+HOJE_SP = "(now() AT TIME ZONE 'America/Sao_Paulo')::date"
+
+@app.get("/gerente/estoque")
+def gerente_estoque(u=Depends(exige("gerente"))):
+    """Um resumo por produto + cartões. Livre só conta lotes dentro da validade."""
+    with engine.connect() as c:
+        linhas = c.execute(text(f"""
+            SELECT p.sku, p.nome, p.categoria, p.preco, COALESCE(p.estoque_minimo, 5) AS minimo,
+                   COALESCE(SUM(l.quantidade), 0) AS total,
+                   COALESCE(SUM(l.reservado), 0) AS reservado,
+                   COALESCE(SUM(l.quantidade - l.reservado) FILTER (WHERE {LOTE_VALIDO}), 0) AS livre,
+                   COUNT(l.id) FILTER (WHERE l.quantidade > 0) AS lotes,
+                   MIN(l.validade) FILTER (WHERE l.quantidade > 0 AND {LOTE_VALIDO}) AS validade,
+                   COALESCE(SUM(l.quantidade) FILTER (WHERE l.validade < {HOJE_SP}), 0) AS vencido_un,
+                   bool_or(l.quantidade > 0 AND l.validade BETWEEN {HOJE_SP} AND {HOJE_SP} + 3) AS vencendo
+            FROM produtos p LEFT JOIN lotes l ON l.sku = p.sku
+            GROUP BY p.sku ORDER BY p.nome""")).all()
+    prods, cards = [], {"zerados": 0, "abaixo_minimo": 0, "vencidos_un": 0, "vencidos_valor": 0.0, "vencendo": 0}
+    for r in linhas:
+        # prioridade: vencido > zerado > baixo > vencendo > ok
+        if r.vencido_un > 0: sit = "vencido"
+        elif r.livre <= 0: sit = "zerado"
+        elif r.livre < r.minimo: sit = "baixo"
+        elif r.vencendo: sit = "vencendo"
+        else: sit = "ok"
+        # cartões contam cada problema separado (um produto pode estar em mais de um)
+        if r.livre <= 0: cards["zerados"] += 1
+        elif r.livre < r.minimo: cards["abaixo_minimo"] += 1
+        if r.vencendo: cards["vencendo"] += 1
+        cards["vencidos_un"] += int(r.vencido_un)
+        cards["vencidos_valor"] += float(r.vencido_un * r.preco)
+        prods.append({"sku": r.sku, "nome": r.nome, "categoria": r.categoria, "total": int(r.total), "reservado": int(r.reservado),
+                      "livre": int(r.livre), "minimo": int(r.minimo), "lotes": r.lotes, "validade": r.validade, "situacao": sit})
+    cards["vencidos_valor"] = round(cards["vencidos_valor"], 2)
+    return {"cartoes": cards, "produtos": prods}
+
+@app.get("/gerente/estoque/{sku}")
+def gerente_estoque_sku(sku: str, u=Depends(exige("gerente"))):
+    """Lotes do produto + extrato (últimas 50 movimentações)."""
+    with engine.connect() as c:
+        lotes = c.execute(text(f"""SELECT id, validade, quantidade, reservado, (validade < {HOJE_SP}) AS vencido
+                                   FROM lotes WHERE sku = :s ORDER BY validade NULLS LAST, id"""), {"s": sku}).all()
+        movs = c.execute(text("""
+            SELECT m.id, to_char(m.criado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YY HH24:MI') AS hora,
+                   m.lote_id, m.tipo, m.campo, m.quantidade, m.saldo_quantidade, m.saldo_reservado,
+                   p.numero AS pedido, m.funcionario, m.motivo
+            FROM movimentacoes_estoque m LEFT JOIN pedidos p ON p.id = m.pedido_id
+            WHERE m.sku = :s ORDER BY m.id DESC LIMIT 50"""), {"s": sku}).all()
+    return {"sku": sku,
+            "lotes": [{"id": l.id, "validade": l.validade, "quantidade": l.quantidade, "reservado": l.reservado, "vencido": bool(l.vencido)} for l in lotes],
+            "movimentacoes": [dict(m._mapping) for m in movs]}
