@@ -68,10 +68,14 @@ async def lifespan(app):
     yield
     tarefa.cancel()
 
-app = FastAPI(title="Super", lifespan=lifespan)
+PROD = _os.getenv("AMBIENTE") == "prod"
+# em produção some a documentação automática (/docs, /redoc, /openapi.json)
+app = FastAPI(title="Super", lifespan=lifespan, **({"docs_url": None, "redoc_url": None, "openapi_url": None} if PROD else {}))
 
 from fastapi.middleware.cors import CORSMiddleware
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["*"], allow_headers=["*"])
+# origens liberadas vêm do .env (separadas por vírgula); padrão = dev local
+CORS_ORIGINS = [o.strip() for o in _os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/health")
 def health():

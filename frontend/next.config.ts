@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // produção: gera .next/standalone (servidor Node enxuto para a imagem Docker)
+  output: "standalone",
   // Celular via túnel (cloudflared): um único endereço serve site e API
   allowedDevOrigins: ["*.trycloudflare.com"],
   async rewrites() {

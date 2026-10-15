@@ -45,8 +45,8 @@ Lista viva do que ainda falta ou pode melhorar. Marque `[x]` quando fizer.
 - [x] Entrada de mercadoria com data de entrada (padrão hoje); validade não pode ser antes da entrada e avisa quando é hoje (e4)
 - [x] Editar validade de um lote (só gerente), registrada no extrato como ajuste de 0 un. (e4)
 
-## Deploy (super.orbita.cloud)
-Domínio definitivo: **super.orbita.cloud**. Antes de subir:
+## Deploy (super.orbitacode.cloud)
+Domínio definitivo: **super.orbitacode.cloud**. Antes de subir:
 - [ ] `JWT_SECRET` forte
 - [ ] Limpar produtos de teste com "**Prox Venc**" no nome
 - [ ] Traccar Client enviando posição a cada 10 s
@@ -57,6 +57,6 @@ Domínio definitivo: **super.orbita.cloud**. Antes de subir:
 
 ## Login na loja (b2)
 - [x] Loja do cliente (/) só abre com login; aceita gerente e (no futuro) perfil `cliente`
-- [ ] Trocar a senha do 9001 (hoje 1234) por uma forte antes do deploy em super.orbita.cloud
+- [ ] Trocar a senha do 9001 (hoje 1234) por uma forte antes do deploy em super.orbitacode.cloud
 - [ ] Criar logins `cliente` de verdade (cadastro) quando abrir para outras pessoas
 - [ ] Proteger `GET /entrega/{numero}/posicao` (ainda aberto: mostra onde está o entregador)

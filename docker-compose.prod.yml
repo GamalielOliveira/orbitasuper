@@ -1,0 +1,64 @@
+# Produção (VPS): docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+# O compose de dev (docker-compose.yml) continua igual.
+# Só o frontend fica exposto, pelo Traefik com HTTPS. Banco e backend ficam na rede interna.
+name: super
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-super}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:-super}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      retries: 5
+    networks: [interna]
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-super}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-super}
+      AMBIENTE: prod
+    depends_on:
+      db: { condition: service_healthy }
+    mem_limit: 384m
+    networks: [interna, traccar]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        BACKEND_URL: http://backend:8000
+    restart: unless-stopped
+    depends_on: [backend]
+    mem_limit: 512m
+    networks: [interna, traefik]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:-traefik}
+      - traefik.http.routers.super.rule=Host(`${DOMINIO:-super.orbitacode.cloud}`)
+      - traefik.http.routers.super.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.super.tls=true
+      - traefik.http.routers.super.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}
+      - traefik.http.services.super.loadbalancer.server.port=3000
+
+volumes:
+  dbdata:
+
+networks:
+  interna: {}
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}
+  # rede do Traccar na VPS (backend chama o Traccar pelo nome interno)
+  traccar:
+    external: true
+    name: ${TRACCAR_NETWORK:-orbitacode_default}
