@@ -80,8 +80,11 @@ def disponivel(perfil: dict, t: datetime, ignorar: bool) -> bool:
     x = hm(tl)
     if e <= x < s:
         return not (perfil.get("almoco_inicio", "99") <= x < perfil.get("almoco_fim", "00"))
-    _, fecha = horario_loja(tl.date())
-    return s == hm(fecha) and fecha <= tl < fecha + timedelta(hours=DRENAR_H)
+    # drenagem: confere o fechamento de hoje e o de ontem (depois da meia-noite)
+    for dd in (tl.date(), tl.date() - timedelta(days=1)):
+        _, fecha = horario_loja(dd)
+        if s == hm(fecha) and fecha <= tl < fecha + timedelta(hours=DRENAR_H): return True
+    return False
 
 
 # ---------------------------------------------------------------- plano do dia
@@ -238,12 +241,11 @@ class Sim:
 
     # ------------------------------------------------------------ 2) pagamento
     def destino_de(self, n):
-        if n in self.destino: return self.destino[n]
-        # pedido de outra execução (modo tick): sorteio fixo pelo número
-        u = h(n, "destino")
-        return "expira" if u < P["prob_expirar"] else "recusa" if u < P["prob_expirar"] + P["prob_recusar"] else "paga"
+        # pedido de outra execução ainda sem pagamento: quem ia pagar já pagou no fim da execução dele
+        # (pagamentos(..., ate_o_fim=True)), então o que sobrou é destino "expira": deixa o app expirar
+        return self.destino.get(n, "expira")
 
-    def pagamentos(self, t):
+    def pagamentos(self, t, ate_o_fim=False):
         with engine.connect() as c:
             pend = c.execute(text(f"""SELECT p.numero, p.cliente_matricula, p.criado_em FROM pedidos p
                                       WHERE p.status='aguardando_pagamento' AND {SIM_CLIENTE}
@@ -253,7 +255,7 @@ class Sim:
             if dest == "expira": continue
             base = self.criados.get(p.numero, p.criado_em)
             a, b = P["pagar_em_seg"]
-            if t < base + timedelta(seconds=a + (b - a) * h(p.numero, "paga")): continue
+            if not ate_o_fim and t < base + timedelta(seconds=a + (b - a) * h(p.numero, "paga")): continue
             cli = self.cli[p.cliente_matricula]
             recusa = dest == "recusa"
             metodo = "cartao" if recusa or h(p.numero, "metodo") < 0.5 else "pix"
@@ -387,13 +389,32 @@ class Sim:
             t += timedelta(minutes=1)
         self.log(f"criados {self.criados_ok} de {len(itens)} planejados; abertos no fim: {self.em_andamento()}")
 
+    def cursor(self, d: date) -> datetime:
+        """Último pedido simulado já criado hoje (pelo 'dia' ou por um tick anterior): o tick continua dali."""
+        with engine.connect() as c:
+            m = c.execute(text(f"""SELECT MAX(criado_em) FROM pedidos WHERE {SIM_CLIENTE}
+                                   AND (criado_em AT TIME ZONE 'America/Sao_Paulo')::date = :d"""), {"d": d}).scalar()
+        return minuto(m) if m else horario_loja(d)[0] - timedelta(minutes=1)
+
     def tick(self, janela_min):
-        agora = minuto(datetime.now(TZ))
-        d = agora.date()
-        itens = [x for x in plano(d, self.clientes, P["por_dia"]) if agora - timedelta(minutes=janela_min) <= x["t"] < agora]
+        """Tempo real: roda ~janela-1 min, criando os pedidos do plano do dia na hora certa e andando a fila a cada minuto.
+        Continua de onde o 'dia' ou o tick anterior parou (sem duplicar); horários já passados são criados na hora (recuperação)."""
+        ini = datetime.now(TZ); d = ini.date()
+        fim = ini + timedelta(minutes=max(1, janela_min - 1), seconds=-20)
+        cur = self.cursor(d)
+        fila = sorted((x for x in plano(d, self.clientes, P["por_dia"], self.feitos_no_dia(d)) if cur < x["t"] <= fim), key=lambda x: x["t"])
+        atras = sum(1 for x in fila if x["t"] < minuto(ini))
+        self.log(f"== tick {ini:%d/%m %H:%M:%S} · continua depois de {hm(cur)} · {len(fila)} pedidos na janela"
+                 + (f" ({atras} atrasados, criados agora)" if atras else ""))
         self.criados_ok = 0
-        for x in itens: self.criar(x)
-        self.passo(datetime.now(TZ))
+        while True:
+            agora = datetime.now(TZ)
+            while fila and fila[0]["t"] <= agora: self.criar(fila.pop(0))
+            self.passo(agora)
+            if agora >= fim: break
+            time.sleep(max(1.0, min(60 - datetime.now(TZ).second, (fim - datetime.now(TZ)).total_seconds())))
+        self.pagamentos(datetime.now(TZ), ate_o_fim=True)   # ninguém "que ia pagar" fica pendente para o próximo tick
+        self.log(f"criados {self.criados_ok} · abertos: {self.em_andamento()}")
 
 
 # ---------------------------------------------------------------- relatórios
@@ -437,6 +458,11 @@ def main():
     n = a.por_dia or P["por_dia"]
 
     if a.modo == "resumo": return resumo(d)
+    if a.modo in ("tick", "dia", "teste"):   # uma simulação por vez (tick do cron x dia manual)
+        global TRAVA
+        TRAVA = engine.connect()
+        if not TRAVA.execute(text("SELECT pg_try_advisory_lock(715151)")).scalar():
+            print("outra simulação está rodando; saindo."); return
     if a.modo == "tick": Sim(virtual=False).tick(a.janela); return
     if a.modo == "teste":
         s = Sim(virtual=True, ignorar_turno=True)
