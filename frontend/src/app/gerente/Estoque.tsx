@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 const API = "/api";
 type Sit = "vencido" | "zerado" | "baixo" | "vencendo" | "ok";
-type Prod = { sku: string; nome: string; categoria: string; total: number; reservado: number; livre: number; minimo: number; lotes: number; validade: string | null; situacao: Sit };
+type Prod = { sku: string; nome: string; categoria: string; total: number; reservado: number; livre: number; minimo: number; lotes: number; validade: string | null; situacao: Sit; alertas: Sit[]; perecivel: boolean };
 type Dados = { cartoes: { zerados: number; abaixo_minimo: number; vencidos_un: number; vencidos_valor: number; vencendo: number }; produtos: Prod[] };
 type Lote = { id: number; validade: string | null; entrada_em: string | null; quantidade: number; reservado: number; vencido: boolean };
 type Mov = { id: number; hora: string; lote_id: number; tipo: string; campo: string; quantidade: number; saldo_quantidade: number; saldo_reservado: number; pedido: string | null; funcionario: string | null; motivo: string | null };
@@ -161,6 +161,53 @@ function Detalhe({ sku, token, minimo, chamar, versao }: { sku: string; token: s
     </div>);
 }
 
+// Repor vários produtos de uma vez: um lote novo por produto (POST /gerente/estoque/reposicao)
+function Reposicao({ itens, chamar, fechar }: { itens: Prod[]; chamar: Chamar; fechar: (ok: boolean) => void }) {
+  const [hoje] = useState(hojeSP);
+  const [modoQtd, setModoQtd] = useState<"auto" | "unica">("auto");
+  const [qtd, setQtd] = useState("20");
+  const [entrada, setEntrada] = useState(hoje);
+  const [modoVal, setModoVal] = useState<"auto" | "unica">("auto");
+  const [validade, setValidade] = useState("");
+  const [nota, setNota] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const qtdDe = (p: Prod) => modoQtd === "auto" ? Math.max(p.minimo * 2, 20) : Number(qtd);
+  const total = itens.reduce((s, p) => s + qtdDe(p), 0);
+  const erro = entrada > hoje ? "Entrada no futuro" : modoQtd === "unica" && !(Number(qtd) > 0) ? "Quantidade inválida"
+    : modoVal === "unica" && !validade ? "Escolha a validade" : modoVal === "unica" && validade < hoje ? "Validade já passou"
+    : modoVal === "unica" && validade < entrada ? "Validade antes da entrada" : "";
+  const enviar = async () => {
+    setEnviando(true);
+    const j = await chamar("/gerente/estoque/reposicao", "POST", { itens: itens.map(p => ({ sku: p.sku, quantidade: qtdDe(p) })),
+      entrada_em: entrada, validade: modoVal === "unica" ? validade : null, nota: nota.trim() || null });
+    setEnviando(false);
+    if (j) fechar(true);
+  };
+  return (
+    <div className="space-y-2 border-b bg-blue-50/60 p-3 text-xs">
+      <p className="font-bold text-gray-700">Repor {itens.length} produto(s) · {total} un. · um lote novo por produto</p>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="flex items-center gap-1">Quantidade:
+          <label className="flex items-center gap-1"><input type="radio" checked={modoQtd === "auto"} onChange={() => setModoQtd("auto")} /> automática (maior entre 2× mínimo e 20)</label>
+          <label className="flex items-center gap-1"><input type="radio" checked={modoQtd === "unica"} onChange={() => setModoQtd("unica")} /> mesma para todos</label>
+          {modoQtd === "unica" && <input type="number" min={1} value={qtd} onChange={e => setQtd(e.target.value)} className={`${inp} w-16`} />}
+        </span>
+        <label className="flex items-center gap-1">Entrada <input type="date" max={hoje} value={entrada} onChange={e => setEntrada(e.target.value)} className={inp} /></label>
+        <span className="flex items-center gap-1">Validade:
+          <label className="flex items-center gap-1"><input type="radio" checked={modoVal === "auto"} onChange={() => setModoVal("auto")} /> automática (prazo do último lote; sem histórico: perecível 7 dias, outros 180)</label>
+          <label className="flex items-center gap-1"><input type="radio" checked={modoVal === "unica"} onChange={() => setModoVal("unica")} /> data única</label>
+          {modoVal === "unica" && <input type="date" min={entrada > hoje ? entrada : hoje} value={validade} onChange={e => setValidade(e.target.value)} className={inp} />}
+        </span>
+        <input value={nota} onChange={e => setNota(e.target.value)} maxLength={150} placeholder="Fornecedor / nota (opcional)" className={`${inp} w-56`} />
+      </div>
+      <div className="flex items-center gap-2">
+        <button disabled={!!erro || enviando} onClick={enviar} className={`${btn} bg-white`}>{enviando ? "Registrando…" : "Registrar reposição"}</button>
+        <button onClick={() => fechar(false)} className={btn}>Cancelar</button>
+        {erro && <span className="text-red-700">{erro}</span>}
+      </div>
+    </div>);
+}
+
 export default function Estoque({ token }: { token: string }) {
   const [d, setD] = useState<Dados | null>(null);
   const [cat, setCat] = useState("");
@@ -172,6 +219,8 @@ export default function Estoque({ token }: { token: string }) {
   const [aberto, setAberto] = useState<string | null>(null);
   const [toast, setToast] = useState<{ txt: string; erro: boolean } | null>(null);
   const [versao, setVersao] = useState(0);   // muda após cada ação para recarregar o detalhe
+  const [sel, setSel] = useState<Set<string>>(new Set());   // produtos marcados para repor
+  const [repor, setRepor] = useState(false);
 
   const carregar = useCallback(async () => {
     const r = await fetch(`${API}/gerente/estoque`, { headers: { Authorization: `Bearer ${token}` } });
@@ -206,7 +255,7 @@ export default function Estoque({ token }: { token: string }) {
     if (!d) return [];
     const b = busca.trim().toLowerCase();
     const lista = d.produtos.filter(p =>
-      (todos || sit || p.situacao !== "ok") && (!sit || p.situacao === sit) && (!cat || p.categoria === cat) &&
+      (todos || sit || p.situacao !== "ok") && (!sit || p.alertas.includes(sit)) && (!cat || p.categoria === cat) &&
       (!b || p.nome.toLowerCase().includes(b) || p.sku.toLowerCase().includes(b)));
     const val = (p: Prod) => ordem.col === "situacao" ? ORDEM_SIT[p.situacao] : p[ordem.col];
     return lista.sort((a, x) => {
@@ -218,6 +267,10 @@ export default function Estoque({ token }: { token: string }) {
 
   if (!d) return <p className="text-gray-500">Carregando…</p>;
   const k = d.cartoes;
+  const todosMarcados = filtrados.length > 0 && filtrados.every(p => sel.has(p.sku));
+  const marcarFiltro = () => setSel(s => { const n = new Set(s); filtrados.forEach(p => todosMarcados ? n.delete(p.sku) : n.add(p.sku)); return n; });
+  const marcar = (sku: string) => setSel(s => { const n = new Set(s); if (n.has(sku)) n.delete(sku); else n.add(sku); return n; });
+  const selecionados = d.produtos.filter(p => sel.has(p.sku));
   const paginas = Math.max(1, Math.ceil(filtrados.length / POR_PAGINA));
   const p0 = Math.min(pag, paginas - 1);
   const pagina = filtrados.slice(p0 * POR_PAGINA, (p0 + 1) * POR_PAGINA);
@@ -231,7 +284,7 @@ export default function Estoque({ token }: { token: string }) {
       {toast && <div className={`fixed bottom-4 right-4 z-50 max-w-md rounded-lg px-4 py-2 text-sm text-white shadow-lg ${toast.erro ? "bg-red-700" : "bg-green-700"}`}>{toast.txt}</div>}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Cartao titulo="Zerados" valor={k.zerados} ruim={k.zerados > 0} sub="sem saldo livre" />
-        <Cartao titulo="Abaixo do mínimo" valor={k.abaixo_minimo} ruim={k.abaixo_minimo > 0} />
+        <Cartao titulo="Abaixo do mínimo" valor={k.abaixo_minimo} ruim={k.abaixo_minimo > 0} sub="livre > 0 e < mínimo (zerados à parte)" />
         <div className="relative">
           <Cartao titulo="Lotes vencidos" valor={`${k.vencidos_un} un.`} sub={brl(k.vencidos_valor)} ruim={k.vencidos_un > 0} />
           {k.vencidos_un > 0 && <button onClick={baixarTodos} className="absolute right-2 top-2 rounded bg-red-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-red-700">Baixar todos vencidos</button>}
@@ -254,11 +307,20 @@ export default function Estoque({ token }: { token: string }) {
           <label className="flex items-center gap-1"><input type="checkbox" checked={todos} onChange={e => mudou(setTodos)(e.target.checked)} /> mostrar todos (inclui OK)</label>
           <span className="ml-auto text-gray-500">{filtrados.length} produto(s)</span>
         </div>
+        {/* Seleção para reposição: a barra só aparece com algo marcado */}
+        {sel.size > 0 && !repor && (
+          <div className="flex items-center gap-2 border-b bg-blue-50/60 px-3 py-2 text-sm">
+            <span>{sel.size} selecionado(s)</span>
+            <button onClick={() => setRepor(true)} className={btn}>Repor selecionados</button>
+            <button onClick={() => setSel(new Set())} className="text-xs text-blue-600 underline">Limpar seleção</button>
+          </div>)}
+        {repor && <Reposicao itens={selecionados} chamar={chamar} fechar={ok => { setRepor(false); if (ok) setSel(new Set()); }} />}
 
         <div className="overflow-x-auto">
           <table className="w-full whitespace-nowrap text-sm">
             <thead className="bg-gray-50 text-left text-gray-500">
-              <tr>{cab.map(([c, nome]) => (
+              <tr><th className="w-8 pl-3"><input type="checkbox" checked={todosMarcados} onChange={marcarFiltro} title={`Selecionar todos do filtro (${filtrados.length})`} /></th>
+                {cab.map(([c, nome]) => (
                 <th key={c} onClick={() => setOrdem(o => ({ col: c, asc: o.col === c ? !o.asc : true }))} className="cursor-pointer select-none px-3 py-2 hover:text-gray-900">
                   {nome}{ordem.col === c ? (ordem.asc ? " ▲" : " ▼") : ""}
                 </th>))}</tr>
@@ -267,6 +329,7 @@ export default function Estoque({ token }: { token: string }) {
               {pagina.map(p => (
                 <Fragment key={p.sku}>
                   <tr onClick={() => setAberto(a => a === p.sku ? null : p.sku)} className={`cursor-pointer border-t hover:bg-blue-50 ${aberto === p.sku ? "bg-blue-50" : ""}`}>
+                    <td className="pl-3" onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.has(p.sku)} onChange={() => marcar(p.sku)} /></td>
                     <td className="max-w-72 truncate px-3 py-1.5" title={p.sku}>{aberto === p.sku ? "▾" : "▸"} {p.nome} <span className="text-xs text-gray-400">{p.sku}</span></td>
                     <td className="px-3 text-gray-600">{p.categoria}</td>
                     <td className="px-3 text-right">{p.total}</td>
@@ -277,9 +340,9 @@ export default function Estoque({ token }: { token: string }) {
                     <td className="px-3">{dataBR(p.validade)}</td>
                     <td className="px-3"><span className={`rounded-full px-2 py-0.5 text-xs ${SIT[p.situacao][1]}`}>{SIT[p.situacao][0]}</span></td>
                   </tr>
-                  {aberto === p.sku && <tr><td colSpan={9} className="bg-gray-50 px-6 py-3"><Detalhe key={p.sku} sku={p.sku} token={token} minimo={p.minimo} chamar={chamar} versao={versao} /></td></tr>}
+                  {aberto === p.sku && <tr><td colSpan={10} className="bg-gray-50 px-6 py-3"><Detalhe key={p.sku} sku={p.sku} token={token} minimo={p.minimo} chamar={chamar} versao={versao} /></td></tr>}
                 </Fragment>))}
-              {!pagina.length && <tr><td colSpan={9} className="p-4 text-center text-gray-400">{todos || sit ? "Nada encontrado." : "Tudo OK por aqui. 🎉 Marque “mostrar todos” para ver o estoque inteiro."}</td></tr>}
+              {!pagina.length && <tr><td colSpan={10} className="p-4 text-center text-gray-400">{todos || sit ? "Nada encontrado." : "Tudo OK por aqui. 🎉 Marque “mostrar todos” para ver o estoque inteiro."}</td></tr>}
             </tbody>
           </table>
         </div>

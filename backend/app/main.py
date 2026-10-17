@@ -1073,7 +1073,7 @@ def gerente_estoque(u=Depends(exige("gerente"))):
     """Um resumo por produto + cartões. Livre só conta lotes dentro da validade."""
     with engine.connect() as c:
         linhas = c.execute(text(f"""
-            SELECT p.sku, p.nome, p.categoria, p.preco, COALESCE(p.estoque_minimo, 5) AS minimo,
+            SELECT p.sku, p.nome, p.categoria, p.preco, p.perecivel, COALESCE(p.estoque_minimo, 5) AS minimo,
                    COALESCE(SUM(l.quantidade), 0) AS total,
                    COALESCE(SUM(l.reservado), 0) AS reservado,
                    COALESCE(SUM(l.quantidade - l.reservado) FILTER (WHERE {LOTE_VALIDO}), 0) AS livre,
@@ -1097,8 +1097,11 @@ def gerente_estoque(u=Depends(exige("gerente"))):
         if r.vencendo: cards["vencendo"] += 1
         cards["vencidos_un"] += int(r.vencido_un)
         cards["vencidos_valor"] += float(r.vencido_un * r.preco)
+        # alertas = todas as situações que valem para o produto (o filtro usa isto; "situacao" é só a mais grave, para a cor)
+        alertas = [a for a, ok in (("vencido", r.vencido_un > 0), ("zerado", r.livre <= 0), ("baixo", 0 < r.livre < r.minimo), ("vencendo", bool(r.vencendo))) if ok] or ["ok"]
         prods.append({"sku": r.sku, "nome": r.nome, "categoria": r.categoria, "total": int(r.total), "reservado": int(r.reservado),
-                      "livre": int(r.livre), "minimo": int(r.minimo), "lotes": r.lotes, "validade": r.validade, "situacao": sit})
+                      "livre": int(r.livre), "minimo": int(r.minimo), "lotes": r.lotes, "validade": r.validade, "situacao": sit, "alertas": alertas,
+                      "perecivel": bool(r.perecivel)})
     cards["vencidos_valor"] = round(cards["vencidos_valor"], 2)
     return {"cartoes": cards, "produtos": prods}
 
@@ -1164,20 +1167,59 @@ def baixar_vencidos(u=Depends(exige("gerente"))):
             else: baixados += 1; unidades += lote.quantidade
         return {"ok": True, "lotes": baixados, "unidades": unidades, "pulados": pulados}
 
+def _validar_entrada(entrada: date | None, validade: date | None, rotulo=""):
+    hoje = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    entrada = entrada or hoje
+    if entrada > hoje: raise HTTPException(422, f"{rotulo}Data de entrada no futuro")
+    if validade and validade < entrada: raise HTTPException(422, f"{rotulo}Validade antes da data de entrada")
+    if validade and validade < hoje: raise HTTPException(422, f"{rotulo}Validade já passou")
+    return entrada
+
+def _entrada_lote(c, sku, quantidade, validade, entrada, u, motivo="recebimento"):
+    """Cria um lote novo e soma a entrada pelo mover_estoque (o extrato fecha com o saldo). Usada pela entrada simples e pela reposição em lote."""
+    if not c.execute(text("SELECT 1 FROM produtos WHERE sku = :s"), {"s": sku}).first(): raise HTTPException(404, f"Produto {sku} não existe")
+    lid = c.execute(text("""INSERT INTO lotes (loja_id, sku, validade, entrada_em, quantidade, reservado)
+                            VALUES ((SELECT MIN(id) FROM lojas), :s, :v, :e, 0, 0) RETURNING id"""), {"s": sku, "v": validade, "e": entrada}).scalar()
+    mover_estoque(c, lid, "entrada", quantidade, "quantidade", funcionario=u["sub"], motivo=motivo)
+    return lid
+
+def _validade_auto(c, sku, entrada: date):
+    """Validade padrão da reposição: mesmo prazo (validade - entrada) do último lote do produto; sem histórico: perecível 7 dias, senão 180."""
+    r = c.execute(text("""SELECT l.validade - COALESCE(l.entrada_em, l.validade - 30) AS dias, p.perecivel
+                          FROM produtos p LEFT JOIN lotes l ON l.sku = p.sku AND l.validade IS NOT NULL
+                          WHERE p.sku = :s ORDER BY l.id DESC NULLS LAST LIMIT 1"""), {"s": sku}).first()
+    dias = int(r.dias) if r and r.dias and r.dias > 0 else (7 if r and r.perecivel else 180)
+    hoje = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    return max(entrada + timedelta(days=dias), hoje + timedelta(days=1))   # nunca nasce vencida (entrada antiga)
+
 @app.post("/gerente/estoque/{sku}/entrada")
 def entrada_mercadoria(sku: str, e: EntradaIn, u=Depends(exige("gerente"))):
-    hoje = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
-    entrada = e.entrada_em or hoje
-    if entrada > hoje: raise HTTPException(422, "Data de entrada no futuro")
-    if e.validade and e.validade < entrada: raise HTTPException(422, "Validade antes da data de entrada")
-    if e.validade and e.validade < hoje: raise HTTPException(422, "Validade já passou")
+    entrada = _validar_entrada(e.entrada_em, e.validade)
     with engine.begin() as c:
-        if not c.execute(text("SELECT 1 FROM produtos WHERE sku = :s"), {"s": sku}).first(): raise HTTPException(404, "Produto não existe")
-        # lote nasce zerado e a entrada soma pelo mover_estoque (assim o extrato fecha com o saldo)
-        lid = c.execute(text("""INSERT INTO lotes (loja_id, sku, validade, entrada_em, quantidade, reservado)
-                                VALUES ((SELECT MIN(id) FROM lojas), :s, :v, :e, 0, 0) RETURNING id"""), {"s": sku, "v": e.validade, "e": entrada}).scalar()
-        mover_estoque(c, lid, "entrada", e.quantidade, "quantidade", funcionario=u["sub"], motivo="recebimento")
-        return {"ok": True, "lote_id": lid}
+        return {"ok": True, "lote_id": _entrada_lote(c, sku, e.quantidade, e.validade, entrada, u)}
+
+class ReposicaoItem(BaseModel):
+    sku: str = Field(min_length=1, max_length=40)
+    quantidade: int = Field(gt=0, le=100000)
+
+class ReposicaoIn(BaseModel):
+    itens: list[ReposicaoItem] = Field(min_length=1, max_length=3000)
+    entrada_em: date | None = None
+    validade: date | None = None      # data única para todos; vazio = automática por produto
+    nota: str | None = Field(default=None, max_length=150)   # fornecedor / nota fiscal
+
+@app.post("/gerente/estoque/reposicao")
+def reposicao_em_lote(r: ReposicaoIn, u=Depends(exige("gerente"))):
+    """Repor vários produtos de uma vez: um lote novo por produto, tudo numa transação (dá erro em um, nada é gravado)."""
+    entrada = _validar_entrada(r.entrada_em, r.validade)
+    if len({i.sku for i in r.itens}) != len(r.itens): raise HTTPException(422, "Produto repetido na lista")
+    motivo = "reposição" + (f" · {r.nota.strip()}" if r.nota and r.nota.strip() else "")
+    with engine.begin() as c:
+        unidades = 0
+        for i in r.itens:
+            _entrada_lote(c, i.sku, i.quantidade, r.validade or _validade_auto(c, i.sku, entrada), entrada, u, motivo)
+            unidades += i.quantidade
+    return {"ok": True, "produtos": len(r.itens), "unidades": unidades}
 
 @app.post("/gerente/estoque/lotes/{lote_id}/ajuste")
 def ajuste_inventario(lote_id: int, a: AjusteIn, u=Depends(exige("gerente"))):
