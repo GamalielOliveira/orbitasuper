@@ -1175,19 +1175,33 @@ def _validar_entrada(entrada: date | None, validade: date | None, rotulo=""):
     if validade and validade < hoje: raise HTTPException(422, f"{rotulo}Validade já passou")
     return entrada
 
-def _entrada_lote(c, sku, quantidade, validade, entrada, u, motivo="recebimento"):
-    """Cria um lote novo e soma a entrada pelo mover_estoque (o extrato fecha com o saldo). Usada pela entrada simples e pela reposição em lote."""
+def _entrada_lote(c, sku, quantidade, validade, entrada, u, motivo="recebimento", loja_id=None):
+    """Cria um lote novo e soma a entrada pelo mover_estoque (o extrato fecha com o saldo).
+    Usada pela entrada simples e pela reposição em lote.
+    Sem loja_id, a loja continua sendo a de menor id: a API manual não muda.
+    Com loja_id, o lote nasce nessa loja. A reposição noturna passa a loja explícita."""
     if not c.execute(text("SELECT 1 FROM produtos WHERE sku = :s"), {"s": sku}).first(): raise HTTPException(404, f"Produto {sku} não existe")
-    lid = c.execute(text("""INSERT INTO lotes (loja_id, sku, validade, entrada_em, quantidade, reservado)
-                            VALUES ((SELECT MIN(id) FROM lojas), :s, :v, :e, 0, 0) RETURNING id"""), {"s": sku, "v": validade, "e": entrada}).scalar()
+    params = {"s": sku, "v": validade, "e": entrada}
+    if loja_id is None:
+        loja_sql = "(SELECT MIN(id) FROM lojas)"
+    else:
+        if not c.execute(text("SELECT 1 FROM lojas WHERE id = :id"), {"id": loja_id}).first(): raise HTTPException(404, f"Loja {loja_id} não existe")
+        loja_sql = ":loja"
+        params["loja"] = loja_id
+    lid = c.execute(text(f"""INSERT INTO lotes (loja_id, sku, validade, entrada_em, quantidade, reservado)
+                            VALUES ({loja_sql}, :s, :v, :e, 0, 0) RETURNING id"""), params).scalar()
     mover_estoque(c, lid, "entrada", quantidade, "quantidade", funcionario=u["sub"], motivo=motivo)
     return lid
 
-def _validade_auto(c, sku, entrada: date):
-    """Validade padrão da reposição: mesmo prazo (validade - entrada) do último lote do produto; sem histórico: perecível 7 dias, senão 180."""
-    r = c.execute(text("""SELECT l.validade - COALESCE(l.entrada_em, l.validade - 30) AS dias, p.perecivel
-                          FROM produtos p LEFT JOIN lotes l ON l.sku = p.sku AND l.validade IS NOT NULL
-                          WHERE p.sku = :s ORDER BY l.id DESC NULLS LAST LIMIT 1"""), {"s": sku}).first()
+def _validade_auto(c, sku, entrada: date, loja_id=None):
+    """Validade padrão da reposição: mesmo prazo (validade - entrada) do último lote do produto; sem histórico: perecível 7 dias, senão 180.
+    loja_id limita o histórico a essa loja. Sem loja_id, a API manual olha o último lote do produto como antes."""
+    extra = "AND l.loja_id = :loja" if loja_id is not None else ""
+    params = {"s": sku}
+    if loja_id is not None: params["loja"] = loja_id
+    r = c.execute(text(f"""SELECT l.validade - COALESCE(l.entrada_em, l.validade - 30) AS dias, p.perecivel
+                          FROM produtos p LEFT JOIN lotes l ON l.sku = p.sku AND l.validade IS NOT NULL {extra}
+                          WHERE p.sku = :s ORDER BY l.id DESC NULLS LAST LIMIT 1"""), params).first()
     dias = int(r.dias) if r and r.dias and r.dias > 0 else (7 if r and r.perecivel else 180)
     hoje = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
     return max(entrada + timedelta(days=dias), hoje + timedelta(days=1))   # nunca nasce vencida (entrada antiga)
