@@ -67,4 +67,5 @@ Domínio definitivo: **super.orbitacode.cloud**. Antes de subir:
 - [ ] Cron do modo tempo real (`tick`) com `flock` para não rodar dois ao mesmo tempo
 - [ ] Reposição automática de estoque para a simulação não zerar o catálogo (100 pedidos/dia ≈ 650–750 unidades/dia saindo)
 - [ ] Ativar a reposição noturna (proposta só para revisão em `docs/reposicao-noturna.md`; sem corte escolhido, sem cron e sem backfill)
+- [ ] Escala e atividade de líder, embalador e repositor (a base da equipe está em `docs/equipe-papeis.md`; separação, entrega e recibo AUTO continuam como estão)
 - [x] sim4: ticket calibrado (~R$100, teto R$300), máx 3 pedidos/cliente/dia, chegadas suaves, fechamento com drenagem, expirados exatos (8%), 100 pedidos/dia

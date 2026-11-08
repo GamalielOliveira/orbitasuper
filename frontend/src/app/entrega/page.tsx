@@ -56,7 +56,7 @@ export default function Entrega() {
     const r = await fetch(`${API}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ matricula: mat, pin }) });
     const d = await r.json();
     if (!r.ok) return setErro(d.detail);
-    if (d.funcao === "separador") return setErro("Esta área é só para entregadores.");
+    if (d.funcao !== "entregador" && d.funcao !== "gerente") return setErro("Esta área é só para entregadores.");
     setUser({ token: d.token, nome: d.nome }); setErro("");
   }
   async function acao(caminho: string) {

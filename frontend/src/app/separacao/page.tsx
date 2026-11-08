@@ -40,7 +40,7 @@ export default function Separacao() {
     const r = await fetch(`${API}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ matricula: mat, pin }) });
     const d = await r.json();
     if (!r.ok) return setErro(d.detail);
-    if (d.funcao === "entregador") return setErro("Esta área é só para separadores.");
+    if (d.funcao !== "separador" && d.funcao !== "gerente") return setErro("Esta área é só para separadores.");
     setUser({ token: d.token, nome: d.nome }); setErro("");
   }
   async function pegar() {

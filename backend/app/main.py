@@ -238,7 +238,7 @@ def ver_pedido(numero: str, u=Depends(exige("cliente"))):
     d = dict(r._mapping); d.pop("cliente_matricula")
     return d
 
-from app.auth import confere_pin, gera_token
+from app.auth import PAPEIS, PAPEIS_QUADRO, confere_pin, gera_token
 
 class LoginIn(BaseModel):
     matricula: str
@@ -250,8 +250,14 @@ def login(d: LoginIn):
         f = c.execute(text("SELECT matricula, nome, funcao, pin_hash FROM funcionarios WHERE matricula = :m AND ativo"), {"m": d.matricula}).first()
         if not f:  # não é funcionário: tenta cliente (login da loja)
             f = c.execute(text("SELECT matricula, nome, 'cliente' AS funcao, pin_hash FROM clientes WHERE matricula = :m AND ativo"), {"m": d.matricula}).first()
-    if not f or not confere_pin(d.pin, f.pin_hash):
+    try:
+        pin_ok = bool(f and f.pin_hash) and confere_pin(d.pin, f.pin_hash)
+    except (ValueError, TypeError):
+        pin_ok = False
+    if not f or not pin_ok:
         raise HTTPException(401, "Matrícula ou PIN inválidos")
+    if f.funcao not in PAPEIS and f.funcao != "cliente":
+        raise HTTPException(403, "Função sem acesso")
     return {"token": gera_token(f.matricula, f.nome, f.funcao), "nome": f.nome, "funcao": f.funcao}
 
 from app.auth import exige
@@ -575,7 +581,8 @@ def qualquer_funcionario(cred=Depends(bearer)):
 @app.get("/operacao/quadro")
 def quadro(u=Depends(qualquer_funcionario)):
     """Quadro da loja (somente leitura): pedidos por etapa, com responsável e tempo."""
-    if u.get("funcao") == "cliente": raise HTTPException(403, "Sem permissão para esta área")   # cliente não vê o quadro da loja
+    # Leitura do quadro: quem já operava a loja e o líder. Embalador e repositor ainda não têm atividade aqui.
+    if u.get("funcao") not in PAPEIS_QUADRO: raise HTTPException(403, "Sem permissão para esta área")
     with engine.connect() as c:
         r = c.execute(text("""
             SELECT p.numero, p.status, p.total, COUNT(i.id) AS itens,
@@ -598,6 +605,12 @@ def quadro(u=Depends(qualquer_funcionario)):
         for x in r:
             col[mapa[x.status]].append(dict(x._mapping))
         return col
+
+# ---------------- Área do gerente · equipe (só contagem; não mexe em gente) ----------------
+@app.get("/gerente/equipe")
+def gerente_equipe(u=Depends(exige("gerente"))):
+    from app.equipe import previa
+    return previa()
 
 # ---------------- Área do gerente · passo 1: resumo do dia ----------------
 from datetime import date, datetime, timedelta
