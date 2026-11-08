@@ -5,6 +5,12 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 SEGREDO = os.getenv("JWT_SECRET", "troque-em-producao")
 bearer = HTTPBearer()
 
+# Papéis conhecidos. Entregador entrega e fica fora da equipe interna de 18.
+# Gerente continua passando em exige(); os papéis novos não herdam separação, entrega nem gerência.
+PAPEIS = ("gerente", "lider", "separador", "embalador", "repositor", "entregador")
+PAPEIS_INTERNOS = ("gerente", "lider", "separador", "embalador", "repositor")
+PAPEIS_QUADRO = ("gerente", "lider", "separador", "entregador")
+
 def hash_pin(pin: str) -> str:
     return bcrypt.hashpw(pin.encode(), bcrypt.gensalt()).decode()
 

@@ -142,7 +142,8 @@ def setUpModule():
         loja(c, 2)
         produto(c, "SNT")
         sentinela = lote(c, 2, "SNT", quantidade=7)
-    command.downgrade(cfg, "-1")
+    # Desce até antes da reposição noturna. Um passo só (-1) passaria a ser outra migration.
+    command.downgrade(cfg, "b2c4d6e8f0a1")
     with engine.connect() as c:
         if _tabela(c, "reposicoes_noturnas") or _tabela(c, "reposicao_noturna_origem"):
             raise AssertionError("downgrade deixou tabela da reposição noturna")

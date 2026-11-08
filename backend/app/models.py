@@ -106,7 +106,8 @@ class Funcionario(Base):
     __tablename__ = "funcionarios"
     matricula: Mapped[str] = mapped_column(String(10), primary_key=True)
     nome: Mapped[str] = mapped_column(String(100))
-    funcao: Mapped[str] = mapped_column(String(20))       # separador, entregador ou gerente
+    funcao: Mapped[str] = mapped_column(String(20))       # gerente, lider, separador, embalador, repositor ou entregador
+    turno: Mapped[str | None] = mapped_column(String(10))  # T1, T2 ou noite; vazio = sem alocação
     pin_hash: Mapped[str] = mapped_column(String(100))    # PIN criptografado com bcrypt
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
     disponivel: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")

@@ -171,6 +171,7 @@ class Sim:
         self.tokens, self.destino, self.criados = {}, {}, {}
         with engine.connect() as c:
             self.equipe = {r.matricula: r for r in c.execute(text(
+                # líder, embalador e repositor não entram: não separam pedido nem fazem entrega
                 "SELECT matricula, nome, funcao, perfil FROM funcionarios WHERE simulado AND ativo AND funcao IN ('separador','entregador')")).all()
                 if r.matricula not in PROIBIDOS}
             self.clientes = c.execute(text("SELECT * FROM clientes WHERE simulado AND ativo ORDER BY matricula")).all()
