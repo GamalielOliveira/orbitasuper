@@ -15,13 +15,17 @@ Cada saída de origem entra no máximo uma vez em reposicao_noturna_origem.
 A prévia não grava marcador. Rodar de novo não duplica. Duas execuções
 sobrepostas da mesma loja esperam um cadeado e a segunda não recebe de novo.
 
-Uso, a partir da pasta backend:
+No container do backend (WORKDIR /app), depois que esta revisão estiver na imagem:
   python -m app.reposicao_noturna --loja 2
   python -m app.reposicao_noturna --loja 2 --corte AAAA-MM-DD
   python -m app.reposicao_noturna --loja 2 --corte AAAA-MM-DD --aplicar
+
+O checkout em /opt/super no commit de produção não tem este módulo.
+Sem DATABASE_URL no ambiente o comando recusa e não usa o banco de desenvolvimento.
 """
 import argparse
 import json
+import os
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -58,6 +62,8 @@ def analisar_corte(texto):
 def executar(loja_id: int = LOJA_PADRAO, corte: date | None = None, aplicar: bool = False,
              agora: datetime | None = None, ator: str = ATOR_AUTOMATICO, *, _gancho=None) -> dict:
     """Prévia (padrão) ou aplicação. Sem corte, aplicar recusa e não grava."""
+    if not os.environ.get("DATABASE_URL"):
+        raise ReposicaoRecusada("Sem DATABASE_URL no ambiente. O banco de desenvolvimento não é usado. Nada foi gravado.")
     if not isinstance(ator, str) or ator != ATOR_AUTOMATICO:
         raise ReposicaoRecusada("Ator inválido. A reposição automática só registra AUTO, que não é funcionário e não é o gerente. Nada foi gravado.")
     if isinstance(loja_id, bool) or not isinstance(loja_id, int) or loja_id <= 0:

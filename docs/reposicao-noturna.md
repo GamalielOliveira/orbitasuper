@@ -49,7 +49,7 @@ Rodar de novo no mesmo dia não duplica. Duas execuções ao mesmo tempo, na mes
 
 ## Rastro
 
-O ator no extrato é o texto `AUTO`. Não é matrícula, não é o 9001 e não existe em `funcionarios`. Se alguém cadastrar uma pessoa com matrícula `AUTO`, o comando recusa, para não assinar no lugar dela.
+O ator no extrato é o texto `AUTO`. Não é matrícula, não é o 9001 e não existe em `funcionarios`. A coluna Func. do extrato mostra esse texto cru; a tela não busca nome em `funcionarios` e não quebra se a matrícula não existir. Se alguém cadastrar uma pessoa com matrícula `AUTO`, o comando recusa, para não assinar no lugar dela.
 
 Cada saída elegível ganha uma linha em `reposicao_noturna_origem` apontando para a execução (`reposicoes_noturnas`), o lote novo e a movimentação de entrada. A chave é o id da saída: não há segunda linha para a mesma origem.
 
@@ -59,58 +59,38 @@ A API manual de entrada continua na loja de menor id quando ninguém informa loj
 
 ## Conferir, um comando por vez
 
-Nada disto roda na VPS nesta revisão. Os caminhos `/opt/super` são o passo futuro, depois do OK. O backup automático ainda é pendência do projeto; esta proposta não cria dump e não lê senha.
+Nada disto roda na VPS nesta revisão. O container que está no ar foi montado no commit `0b78964` e **não contém** este comando nem esta migration. Não rode `python` nem `alembic` no host: o banco de produção só existe na rede do Compose, e o fallback do código é o banco de desenvolvimento.
 
-Pare se o comando não mostrar um arquivo recente. Não siga para a migration.
+O script conhecido é `/opt/super-backups/backup.sh`. O conteúdo dele não foi lido. Não execute o script neste passo: ele pode ler senha ou gravar dump.
 
-1. Veja se existe um dump e qual é a data dele. Troque o caminho pelo diretório real do backup; este caminho é só exemplo:
-
-```bash
-ls -lh --time-style=long-iso /var/backups/orbitasuper
-```
-
-2. Entre na pasta do backend na VPS, só quando for a hora:
+O único comando desta etapa, na raiz da VPS:
 
 ```bash
-cd /opt/super/backend
+ls -lh /opt/super-backups/backup.sh
 ```
 
-3. Aplique só a migration, num comando separado. Ela cria `reposicoes_noturnas` e `reposicao_noturna_origem`. Não mexe em saldo nem em histórico:
+Se o `ls` disser que o arquivo não existe, pare. Não procure outro caminho e não abra `.env.prod`.
 
-```bash
-alembic upgrade head
-```
+## Decisões que ainda não foram tomadas
 
-4. Leia a prévia. Isto não grava, nem marcador:
+Cada uma é um passo futuro, separado. Nenhuma está autorizada agora.
 
-```bash
-python -m app.reposicao_noturna --loja 2
-```
-
-5. Quando o corte estiver escolhido, leia de novo com essa data. Ainda é só leitura. Troque `AAAA-MM-DD`:
-
-```bash
-python -m app.reposicao_noturna --loja 2 --corte AAAA-MM-DD
-```
-
-6. Só depois da leitura, grave. Sem o corte o comando recusa:
-
-```bash
-python -m app.reposicao_noturna --loja 2 --corte AAAA-MM-DD --aplicar
-```
-
-7. O cron fica para outra decisão, depois da prévia e do apply controlado. Não cole isto no crontab agora. A linha já está comentada. A VPS em `Etc/UTC` usaria 07:00 para cair 04:00 em Brasília. O `flock` evita dois processos; o banco é quem garante uma vez só.
+- Confirmar, depois de ler o `backup.sh`, se o dump que ele produz existe e está recente. O caminho do dump não está neste repositório.
+- Publicar esta branch na imagem do projeto `super` (`docker compose -f docker-compose.prod.yml --env-file .env.prod -p super`, a partir de `/opt/super`). Isso troca o que está no ar. O `--env-file` é lido pelo Compose; não imprima o arquivo.
+- Rodar a migration **dentro** do container novo, com o trabalho em `/app`: `docker compose -f docker-compose.prod.yml --env-file .env.prod -p super exec backend alembic upgrade head`. Ela só cria duas tabelas.
+- Prévia, no mesmo `exec`, com `python -m app.reposicao_noturna --loja 2`. Não grava.
+- Escolher o corte. Sem essa data não há apply. Data que ainda não começou não reabre o passado. Data já vivida repõe, num recibo só, todo dia encerrado desde o corte que ainda não tenha vínculo.
+- Apply, noutro momento: o mesmo comando com `--corte AAAA-MM-DD` e `--aplicar`.
+- Cron, só depois disso, numa linha nova. Não alterar o cron que já roda o simulador. 07:00 UTC é 04:00 em Brasília. O exemplo fica inativo:
 
 ```cron
-# INATIVO. Não instalar nesta revisão.
-# 0 7 * * * cd /opt/super/backend && flock -n /tmp/reposicao-noturna.lock python -m app.reposicao_noturna --loja 2 --corte AAAA-MM-DD --aplicar
+# INATIVO. Não colar no crontab.
+# 0 7 * * *  cd /opt/super; docker compose -f docker-compose.prod.yml --env-file .env.prod -p super exec -T backend python -m app.reposicao_noturna --loja 2 --corte AAAA-MM-DD --aplicar
 ```
-
-O exemplo acima está comentado de propósito. Mesmo a linha comentada junta pasta e comando; no aprendizado, continue usando os passos 2 e 6 separados.
 
 ## Como voltar atrás
 
-`alembic downgrade` desta revisão só apaga as duas tabelas novas. **Não remove** lote nem linha de `entrada` que um `--aplicar` já tenha gravado.
+Um downgrade desta revisão, se um dia for decidido, roda dentro do container (`alembic downgrade c3d5e7f9a0b1`). Ele só apaga as duas tabelas novas. **Não remove** lote nem linha de `entrada` que um `--aplicar` já tenha gravado. Não rode isso agora.
 
 Não apague vínculo deixando o estoque, nem apague o lote deixando o vínculo. No primeiro caso a próxima madrugada reporia de novo. No segundo o saldo some e o histórico mente. Desfazer um recibo, se um dia for preciso, é um ajuste manual com motivo escrito, olhando `reposicao_noturna_origem`. Esta proposta não traz comando de desfazer.
 

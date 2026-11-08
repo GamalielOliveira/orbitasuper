@@ -197,6 +197,20 @@ class ReposicaoNoturnaTeste(unittest.TestCase):
         self.assertFalse(corpo["gravou"])
         self.assertEqual(antes, estado())
 
+    def test_sem_database_url_nao_grava(self):
+        with engine.begin() as c:
+            loja(c, 2)
+        antes = estado()
+        url = os.environ.pop("DATABASE_URL")
+        try:
+            with self.assertRaises(ReposicaoRecusada):
+                executar(loja_id=2, corte=ONTEM, aplicar=True, agora=sp(HOJE, 4))
+            with self.assertRaises(ReposicaoRecusada):
+                executar(loja_id=2, agora=sp(HOJE, 4))
+        finally:
+            os.environ["DATABASE_URL"] = url
+        self.assertEqual(antes, estado())
+
     def test_aplicar_sem_corte_recusa(self):
         with engine.begin() as c:
             loja(c, 2)
